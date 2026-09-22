@@ -2,6 +2,7 @@
 numpy
 pandas
 scipy
+seaborn
 
 # Machine Learning
 scikit-learn
@@ -45,3 +46,9 @@ pytest
 
 # Prototype
 streamlit
+
+# Kaggle
+kaggle
+
+# Dotenv for .env loader
+python-dotenv
