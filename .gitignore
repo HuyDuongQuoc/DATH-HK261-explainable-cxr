@@ -12,6 +12,7 @@ __pycache__/
 # IDE
 .vscode/
 .idea/
+docs/Secrets.md
 
 # Dataset
 data/raw/
