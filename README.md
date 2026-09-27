@@ -18,3 +18,5 @@ pip install -r requirements.txt
 ```sh
 python scripts/prepare_data.py
 ```
+
+## EDA
