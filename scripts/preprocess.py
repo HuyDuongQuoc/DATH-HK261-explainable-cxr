@@ -198,6 +198,48 @@ def main():
         index=False,
     )
 
+    raw_split_dir = Path(
+        data_config["split_dir"]
+    )
+
+    processed_split_dir = processed_root / "splits"
+
+    processed_split_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    for split_name in ["train", "val"]:
+        raw_split = pd.read_csv(
+            raw_split_dir / f"{split_name}.csv"
+        )
+
+        split_ids = set(
+            raw_split["image_id"]
+        )
+
+        processed_split = (
+            processed_manifest[
+                processed_manifest[
+                    "image_id"
+                ].isin(split_ids)
+            ]
+            .sort_values("image_id")
+            .copy()
+        )
+
+        if len(processed_split) != len(raw_split):
+            raise ValueError(
+                f"Processed {split_name} split "
+                "does not match original split"
+            )
+
+        processed_split.to_csv(
+            processed_split_dir
+            / f"{split_name}.csv",
+            index=False,
+        )
+
     metadata = {
         "target_findings": findings,
         "image_size": preprocessing_config["image_size"],
