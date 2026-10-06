@@ -1,0 +1,72 @@
+seed: 42
+
+data:
+  raw_root: data/raw
+  annotation_csv: data/raw/train.csv
+
+  manifest_path: data/processed/manifest.csv
+  consensus_boxes_path: data/processed/consensus_boxes.csv
+  metadata_path: data/processed/metadata.json
+
+  split_dir: data/processed/splits
+
+  processed_root: data/processed/consensus_v1_224
+
+  target_findings:
+    - Aortic enlargement
+    - Atelectasis
+    - Calcification
+    - Cardiomegaly
+    - Consolidation
+    - ILD
+    - Infiltration
+    - Lung Opacity
+    - Nodule/Mass
+    - Other lesion
+    - Pleural effusion
+    - Pleural thickening
+    - Pneumothorax
+    - Pulmonary fibrosis
+
+  expected_readers: 3
+  positive_votes: 2
+  minority_policy: negative
+
+  val_fraction: 0.15
+
+preprocessing:
+  image_size: 224
+
+  image_resize_mode: bilinear
+  soft_mask_resize_mode: area
+
+  grayscale_to_rgb: true
+
+  mean:
+    - 0.485
+    - 0.456
+    - 0.406
+
+  std:
+    - 0.229
+    - 0.224
+    - 0.225
+
+  use_augmentation: false
+  use_clahe: false
+
+model:
+  name: resnet50
+  pretrained: true
+
+training:
+  batch_size: 8
+  num_workers: 0
+
+  epochs: 30
+  learning_rate: 0.0001
+  weight_decay: 0.0001
+
+  monitor: macro_auroc
+  patience: 5
+  min_delta: 0.0001

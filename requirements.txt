@@ -52,3 +52,6 @@ kaggle
 
 # Dotenv for .env loader
 python-dotenv
+
+iterative-stratification
+PyYAML
