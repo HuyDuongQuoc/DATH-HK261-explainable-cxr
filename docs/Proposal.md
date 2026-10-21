@@ -5,7 +5,7 @@ Dựa trên proposal hiện tại, tui khuyên nên quản lý ĐATH theo kiểu
 | Phase | Tên phase                | Mục tiêu chính                                      | Output quan trọng              |
 | ----- | ------------------------ | --------------------------------------------------- | ------------------------------ |
 | 0     | Project Setup            | Chuẩn hóa repo, môi trường, cách quản lý experiment | Repo chạy được, config, README |
-| 1     | Data Understanding & EDA | Hiểu VinDr-CXR và chọn finding                      | Dataset specification          |
+| 1     | Data Understanding & EDA | Hiểu VinDr-CXR và xác nhận protocol cho 14 finding  | Dataset specification          |
 | 2     | Data Pipeline            | Tạo pipeline train/val/test + bbox/mask             | Dataset/DataLoader hoàn chỉnh  |
 | 3     | Classification Baselines | Train ResNet, DenseNet, ViT                         | Baseline classification        |
 | 4     | Grad-CAM & Localization  | Đánh giá vùng mô hình tập trung                     | Kết quả RQ1                    |
@@ -108,7 +108,7 @@ cxr-location-aware-xai/
 
 # Phase 1 — Data Understanding & EDA
 
-Đây là phase **cần làm cẩn thận nhất trước khi train model**, vì proposal chưa cố định các finding cuối cùng mà yêu cầu chọn sau khi khảo sát phân bố dữ liệu. 
+Đây là phase **cần làm cẩn thận nhất trước khi train model**. Dự án đã quyết định giữ toàn bộ 14 finding bất thường của VinDr-CXR; EDA được dùng để xác nhận tính khả thi, định lượng mức mất cân bằng và thiết kế protocol phù hợp cho từng lớp, không dùng để loại bớt finding.
 
 ### Task 1.1 — Khảo sát cấu trúc VinDr-CXR
 
@@ -124,18 +124,20 @@ cxr-location-aware-xai/
 |                          | Nội dung                                                                                                                           |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
 | **Tên công việc**        | EDA phân bố bệnh lý                                                                                                                |
-| **Mục tiêu công việc**   | Xác định finding nào đủ dữ liệu cho classification và localization                                                                 |
+| **Mục tiêu công việc**   | Định lượng mức mất cân bằng và số annotation của từng finding để thiết kế training/evaluation                                      |
 | **Điều kiện hoàn thành** | Có bảng số ảnh positive/negative, số bounding box và tỷ lệ lớp                                                                     |
 | **Mô tả chi tiết**       | Với từng local finding, tính số ảnh positive, số bbox, số bbox trung bình/ảnh, tỷ lệ positive/negative; trực quan hóa distribution |
 
-### Task 1.3 — Chọn các target findings
+### Task 1.3 — Cố định toàn bộ 14 target findings
 
-|                          | Nội dung                                                                                                                                                                            |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Tên công việc**        | Chốt danh sách bệnh lý mục tiêu                                                                                                                                                     |
-| **Mục tiêu công việc**   | Chọn tập finding đủ dữ liệu và có bbox phục vụ đồng thời classification/localization                                                                                                |
-| **Điều kiện hoàn thành** | Có danh sách chính thức khoảng 3–5 finding và lý do chọn                                                                                                                            |
-| **Mô tả chi tiết**       | Ưu tiên local findings có đủ mẫu dương, annotation ổn định và liên quan rõ vùng ngực/phổi; không chọn Pneumonia làm lớp localization chính vì proposal xác định đây là global label |
+|                          | Nội dung                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Tên công việc**        | Chốt danh sách và thứ tự 14 bệnh lý mục tiêu                                                                                                                                                                                                                                                                                                                                              |
+| **Mục tiêu công việc**   | Giữ đầy đủ phạm vi bất thường của VinDr-CXR cho cả classification và localization, tránh loại bỏ thông tin khi số lớp vẫn ở quy mô có thể quản lý                                                                                                                                                                                                                                         |
+| **Điều kiện hoàn thành** | Danh sách và thứ tự 14 finding được cố định, dùng thống nhất trong manifest, split, model output, checkpoint và evaluation                                                                                                                                                                                                                                                                |
+| **Mô tả chi tiết**       | Sử dụng `Aortic enlargement`, `Atelectasis`, `Calcification`, `Cardiomegaly`, `Consolidation`, `ILD`, `Infiltration`, `Lung Opacity`, `Nodule/Mass`, `Other lesion`, `Pleural effusion`, `Pleural thickening`, `Pneumothorax`, `Pulmonary fibrosis`. Xử lý mất cân bằng bằng weighted BCE và báo cáo AUROC/AUPRC/Precision/Recall/F1 theo từng lớp bên cạnh macro metrics. |
+
+`No finding` không phải là một output class. Các ảnh chỉ được gán `No finding` vẫn được giữ trong dataset và đóng vai trò mẫu âm cho cả 14 finding bất thường.
 
 ### Task 1.4 — Xây dựng annotation rule
 
