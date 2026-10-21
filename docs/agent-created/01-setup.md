@@ -168,13 +168,13 @@ MyDrive/
 
 # PHASE 2 — Data & EDA
 
-Phase này vẫn phải hoàn thành trước khi train, vì proposal quy định số finding cuối cùng chỉ được quyết định sau EDA; đồng thời cùng một local finding phải phục vụ được classification và localization. 
+Phase này vẫn phải hoàn thành trước khi train. Dự án đã chốt sử dụng toàn bộ 14 finding bất thường; EDA dùng để định lượng mất cân bằng, số bbox và độ ổn định annotation của từng lớp, không dùng để loại bớt finding. Cùng một thứ tự lớp phải được giữ thống nhất cho classification và localization.
 
 | Tên công việc                  | Mục tiêu công việc                | Điều kiện hoàn thành                    | Mô tả chi tiết                                       |
 | ------------------------------ | --------------------------------- | --------------------------------------- | ---------------------------------------------------- |
 | **2.1 Đọc VinDr-CXR**          | Hiểu cấu trúc DICOM và annotation | Script đọc được image + metadata + bbox | Xử lý DICOM, CSV annotation, class name, tọa độ      |
 | **2.2 EDA class distribution** | Biết mức mất cân bằng và số bbox  | Có CSV + biểu đồ thống kê               | Tính positive images, bbox, negative, tỷ lệ class    |
-| **2.3 Chọn target findings**   | Chốt lớp nghiên cứu               | Có danh sách chính thức 3–5 finding     | Ưu tiên local finding có bbox đủ nhiều               |
+| **2.3 Cố định target findings** | Chốt toàn bộ 14 lớp nghiên cứu    | Danh sách và thứ tự 14 finding thống nhất với config | Loại `No finding` khỏi output; ảnh `No finding` vẫn là mẫu âm cho 14 lớp |
 | **2.4 Annotation rule**        | Chốt cách xử lý nhiều bác sĩ      | Rule được lưu trong docs/code           | Xác định cách tổng hợp image-level label và bbox     |
 | **2.5 Dataset split**          | Cố định protocol thực nghiệm      | Có `train.csv`, `val.csv`, `test.csv`   | Split chỉ tạo một lần và dùng cho tất cả model       |
 | **2.6 Data pipeline**          | Tạo input chung cho mọi model     | DataLoader trả đúng image/label/mask    | Resize, normalize, augmentation, bbox transformation |
