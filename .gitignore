@@ -15,7 +15,8 @@ __pycache__/
 docs/Secrets.md
 
 # Dataset
-data/raw/
+data/raw/*
+!data/raw/test.csv
 data/processed/
 data/**/*.dcm
 *.dcm
@@ -35,3 +36,6 @@ logs/
 # OS
 .DS_Store
 Thumbs.dbnotebooks/dath_cxr_repo/
+
+# vibe cod
+.commandcode/
