@@ -1,5 +1,0 @@
-- Tài nguyên GPU: Sử dụng Google Colab
-- Điều kiện:
-    - Dùng tqdm để track process training/fine-tuning.
-    - CÓ logic để Checkpointing.
-    - Trên Google Colab: Có logic Lưu checkpoint trên Google Drive.
