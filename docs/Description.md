@@ -54,7 +54,7 @@ EDA hiện có cho thấy mất cân bằng rất lớn: `Aortic enlargement` c�
 - `src/data/annotations.py` kiểm tra schema, reader roster và tạo hard label bằng majority vote tối thiểu hai trong ba reader.
 - Bounding box được union theo từng reader rồi tổng hợp thành soft mask, union mask, `mask_valid` và số reader dương.
 - `scripts/build_manifest.py` tạo manifest, reader vote, class summary và metadata annotation protocol.
-- `scripts/make_splits.py` dùng multilabel stratification, seed cố định và checksum manifest để tạo train/validation split tái lập.
+- `scripts/make_splits.py` dùng multilabel stratification hai bước, seed cố định và fingerprint assignment để tạo split 70/15/15 tái lập.
 - `scripts/preprocess.py` resize JPG về 224×224, sinh mask, kiểm tra label và tạo processed manifest/split.
 - `src/data/dataset.py` trả về image, 14 labels, masks, metadata và kiểm tra class order, shape, giá trị, tính nhất quán.
 
@@ -63,17 +63,17 @@ EDA hiện có cho thấy mất cân bằng rất lớn: `Aortic enlargement` c�
 - `src/models/factory.py` tạo ResNet-50, DenseNet-121 hoặc ViT-B/16 với 14 output.
 - `src/losses/classification_loss.py` tính `pos_weight` từ train split và tạo weighted BCE.
 - `src/training/engine.py` cung cấp train/validation epoch dùng chung.
-- `scripts/train.py` hỗ trợ config, seed, checkpoint `best.pt`/`last.pt`, resume, early stopping, history và validation metrics.
+- `scripts/train.py` hỗ trợ AMP FP16, progress bar, throughput, config, seed, checkpoint `best.pt`/`last.pt`, resume, early stopping và validation metrics.
 - `src/metrics/classification.py` tính AUROC, average precision, Precision, Recall và F1 theo từng finding cùng macro average.
 - Smoke test synthetic đã thành công với cả ba backbone: forward, backward, finite gradient, optimizer step và checkpoint reload đều đạt. Đây là kiểm tra kỹ thuật, không phải kết quả nghiên cứu.
 - `python -m compileall -q src scripts` hiện hoàn thành với exit code 0.
 
 ## 4. Các đầu việc chưa hoàn thành
 
-- Workspace không có raw/processed data, manifest hoặc split artifact trong `data/`; chưa thể xác nhận pipeline hoạt động end-to-end trên dữ liệu thật.
+- Workspace có manifest và processed artifact cho 15.000 ảnh; split được cố định thành 10.500 train, 2.250 validation và 2.250 internal test.
 - Chưa có `dataset_specification.md` và chưa có bằng chứng sanity check ngẫu nhiên 50–100 ảnh sau preprocessing.
-- `tests/` đang rỗng; annotation consensus, mask resize, split, dataset, loss, metrics và checkpoint chưa có automated test.
-- Chưa có standalone `evaluate.py` hoặc result exporter; validation trong `train.py` dùng threshold 0,5.
+- Tests bao phủ split 70/15/15, processed split projection, checkpoint fingerprint và prediction schema; các phần annotation/mask/loss vẫn cần thêm coverage.
+- Có standalone `evaluate.py`; threshold mặc định hiện là 0,5.
 - Chưa có learning-rate scheduler dù Proposal yêu cầu.
 - Chưa có checkpoint, prediction, history hoặc test metrics baseline thật cho bất kỳ backbone nào.
 - Chưa triển khai Grad-CAM/localization, location-aware learning, RQ1/RQ2 analysis và prototype.
@@ -115,8 +115,8 @@ pip install -r requirements.txt
 python scripts/prepare_data.py
 
 python scripts/build_manifest.py --config configs/default.yaml
-python scripts/make_splits.py --config configs/default.yaml
-python scripts/preprocess.py --config configs/default.yaml
+python -m scripts.make_splits --config configs/default.yaml --overwrite
+python -m scripts.preprocess --config configs/default.yaml --splits-only --overwrite
 
 python scripts/smoke_test.py --config configs/resnet50_baseline.yaml
 python scripts/smoke_test.py --config configs/densenet121_baseline.yaml
@@ -128,27 +128,27 @@ Sau khi data pipeline hoàn thành, lệnh training có dạng:
 ```powershell
 python scripts/train.py `
   --config configs/resnet50_baseline.yaml `
-  --checkpoint-dir outputs/checkpoints/resnet50_baseline `
-  --result-dir outputs/metrics/resnet50_baseline
+  --checkpoint-dir outputs/checkpoints/resnet50_baseline_s701515_seed42_amp `
+  --result-dir outputs/metrics/resnet50_baseline_s701515_seed42_amp
 ```
 
-Lệnh training chưa được xem là đã xác minh end-to-end trong workspace hiện tại. Chưa có lệnh evaluate độc lập hoặc chạy web.
+Sau khi khóa cấu hình bằng validation, dùng `scripts.evaluate` để đánh giá `best.pt` trên internal test đúng một lần.
 
 ## 7. Rủi ro cần theo dõi
 
 - **Mất cân bằng nghiêm trọng:** phải theo dõi AUPRC, Recall và F1 từng lớp, đồng thời kiểm tra split giữ được đại diện cho các lớp hiếm.
 - **Quy mô mask:** lưu mask 14 lớp cho mỗi ảnh có thể tạo I/O và dung lượng đáng kể trên Colab/Drive; cần đo thực tế.
 - **JPG/DICOM chưa thống nhất:** Proposal nhắc DICOM nhưng code dùng bộ JPG 1024 px; báo cáo phải ghi đúng protocol thực tế.
-- **Validation chưa phải test:** code mới tạo train/validation split; chưa có protocol final test có nhãn.
+- **Test leakage:** internal test 2.250 ảnh chỉ được dùng sau khi khóa model/hyperparameter bằng validation; `data/raw/test` không được sử dụng vì thiếu ground truth trong workspace.
 - **Threshold cố định:** nếu tune threshold, chỉ được dùng validation và phải cố định trước final evaluation.
 - **Thiếu regression test:** nhiều invariant chỉ được kiểm tra runtime.
 - **Artifact synthetic:** tuyệt đối không dùng smoke-test loss hoặc checkpoint làm kết quả baseline.
 
 ## 8. Ưu tiên tiếp theo
 
-1. Khôi phục/tải raw data và chạy manifest → split → preprocessing end-to-end.
+1. Chạy lại split 70/15/15 và projection processed split, sau đó đóng gói lại archive dùng trên Colab.
 2. Viết `dataset_specification.md` và sanity-check trực quan ít nhất 50–100 ảnh/mask.
-3. Bổ sung automated test cho annotation, masks, split, dataset, metrics và checkpoint.
-4. Chạy ResNet-50 baseline thật, hoàn thiện standalone evaluation/export và kiểm tra toàn pipeline.
+3. Bổ sung automated test còn thiếu cho annotation, masks, dataset, loss và metrics.
+4. Chạy ResNet-50 baseline từ đầu, sau đó đánh giá best checkpoint bằng standalone evaluator.
 5. Sau khi ResNet ổn định, chạy DenseNet-121 và ViT-B/16 theo cùng split/protocol.
 6. Triển khai Grad-CAM và localization metrics trước khi bắt đầu location-aware loss.

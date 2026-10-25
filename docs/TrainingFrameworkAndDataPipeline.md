@@ -6,7 +6,7 @@
 
 Hai subsystem được mô tả trong tài liệu này là:
 
-- **Data Pipeline:** chuyển annotation CSV và ảnh VinBigData JPG thành manifest, train/validation split, ảnh 224×224 và location mask có cùng class order.
+- **Data Pipeline:** chuyển annotation CSV và ảnh VinBigData JPG thành manifest, split 70/15/15, ảnh 224×224 và location mask có cùng class order.
 - **Training Framework:** dùng một interface chung để huấn luyện ResNet-50, DenseNet-121 và ViT-B/16 cho bài toán multi-label classification 14 finding.
 
 Thiết kế này phục vụ ba yêu cầu nghiên cứu:
@@ -24,7 +24,7 @@ Raw JPG + annotation CSV
   Manifest 14 labels
           │
           ▼
-Multilabel train/val split
+Multilabel train/val/test split
           │
           ▼
 Ảnh 224×224 + soft/union masks
@@ -42,7 +42,7 @@ ResNet-50 / DenseNet-121 / ViT-B/16
  Weighted BCE → Metrics → Checkpoint
 ```
 
-Ở trạng thái hiện tại, các module và entrypoint đã tồn tại, nhưng workspace không có raw/processed data hoặc checkpoint baseline thật để chứng minh toàn bộ luồng đã chạy end-to-end.
+Workspace hiện có raw/processed data và split 70/15/15 đã được kiểm tra; chưa có checkpoint baseline thật để chứng minh toàn bộ luồng training/evaluation đã chạy end-to-end.
 
 ## 2. Contract dùng chung
 
@@ -67,10 +67,11 @@ Các giá trị còn lại được kế thừa từ [`default.yaml`](../configs
 |---|---|---|
 | Reproducibility | `seed: 42` | Seed cho Python, NumPy, PyTorch, CUDA, split và DataLoader shuffle |
 | Annotation | `expected_readers: 3`, `positive_votes: 2` | Hard label theo majority vote 2/3 |
-| Split | `val_fraction: 0.15` | 85% train, 15% validation |
+| Split | `train/val/test_fraction: 0.70/0.15/0.15` | 10.500 train, 2.250 validation, 2.250 internal test |
 | Image | `image_size: 224` | Kích thước ảnh và mask sau preprocessing |
 | Normalization | ImageNet mean/std | Phù hợp pretrained torchvision backbones |
-| Training | batch 8, 30 epoch, AdamW LR `1e-4`, weight decay `1e-4` | Protocol baseline hiện tại |
+| Training | batch 8, 30 epoch, AdamW LR `1e-4`, AMP FP16 | Protocol baseline trên Colab T4 |
+| DataLoader | 2 workers, persistent workers, prefetch 2 | Giảm thời gian GPU chờ dữ liệu |
 | Early stopping | patience 5, min delta `1e-4` | Theo validation macro-AUROC |
 
 `load_config` từ chối danh sách finding rỗng hoặc trùng tên. Các key bắt buộc khác chưa có schema validator tổng quát; thiếu key sẽ phát sinh `KeyError` tại nơi sử dụng.
@@ -199,7 +200,7 @@ Các artifact được ghi vào `data/processed/`:
 | `class_summary.csv` | Positive, negative và positive rate theo finding |
 | `metadata.json` | Findings, số reader, vote threshold và consensus rule |
 
-### 3.5 Stage 4 — Tạo train/validation split
+### 3.5 Stage 4 — Tạo train/validation/test split
 
 Entrypoint: [`scripts/make_splits.py`](../scripts/make_splits.py)
 
@@ -207,12 +208,12 @@ Entrypoint: [`scripts/make_splits.py`](../scripts/make_splits.py)
 python -m scripts.make_splits --config configs/default.yaml
 ```
 
-Script sử dụng `MultilabelStratifiedShuffleSplit` với seed 42 và validation fraction 0,15. Split được tạo ở mức `image_id`, không phải annotation row.
+Script dùng `MultilabelStratifiedShuffleSplit` hai bước với seed 42: tách 70% train/30% holdout, sau đó chia holdout thành 15% validation và 15% internal test. Split được tạo ở mức `image_id`, không phải annotation row. `data/raw/test` không tham gia protocol vì workspace không có ground truth tương ứng.
 
 Các invariant được kiểm tra:
 
 - `image_id` trong manifest phải unique.
-- Train và validation không được giao nhau.
+- Train, validation và test đôi một không giao nhau và phủ đủ manifest.
 - Mỗi finding trong mỗi split phải có cả positive và negative sample.
 - Split cũ không bị ghi đè nếu thiếu `--overwrite`.
 
@@ -220,9 +221,9 @@ Artifact trong `data/processed/splits/`:
 
 | Artifact | Nội dung |
 |---|---|
-| `train.csv`, `val.csv` | Các dòng manifest thuộc từng split, sort theo `image_id` |
+| `train.csv`, `val.csv`, `test.csv` | Các dòng manifest thuộc từng split, sort theo `image_id` |
 | `summary.csv` | Positive, negative và positive rate theo split/finding |
-| `split_metadata.json` | Seed, method, fraction, số ảnh, findings và SHA-256 của manifest |
+| `split_metadata.json` | Seed, method, fractions, số ảnh, findings, SHA-256 manifest và fingerprint assignment |
 
 Checksum giúp phát hiện trường hợp split được tạo từ một manifest khác với manifest đang sử dụng.
 
@@ -256,7 +257,10 @@ data/processed/consensus_v1_224/
 ├── metadata.json
 └── splits/
     ├── train.csv
-    └── val.csv
+    ├── val.csv
+    ├── test.csv
+    ├── summary.csv
+    └── split_metadata.json
 ```
 
 Mỗi file `.npz` có contract:
@@ -271,7 +275,7 @@ Mỗi file `.npz` có contract:
 | `class_names` | `[14]` | Unicode string | Class order được đóng gói cùng artifact |
 | `num_readers` | scalar | `uint8` | Số reader của ảnh |
 
-Processed train/validation split phải có cùng số dòng với raw split tương ứng; nếu không, script dừng thay vì tạo dataset thiếu ảnh âm thầm.
+Processed train/validation/test split phải có cùng số dòng với raw split tương ứng; nếu không, script dừng thay vì tạo dataset thiếu ảnh âm thầm. Khi ảnh/mask đã tồn tại, `--splits-only` chỉ tạo lại các split manifest.
 
 ### 3.7 Stage 6 — `CXRDataset`
 
@@ -287,10 +291,11 @@ CXRDataset(
     image_size,
     mean,
     std,
+    load_masks=True,
 )
 ```
 
-Mỗi sample trả về:
+Mỗi sample luôn trả về `image`, `labels`, `image_id`. Khi `load_masks=True`, sample trả thêm:
 
 | Key | Runtime type/shape |
 |---|---|
@@ -312,7 +317,7 @@ Dataset kiểm tra:
 - Mask đúng shape, hữu hạn và soft mask nằm trong `[0, 1]`.
 - `mask_valid` khớp trạng thái label/mask thực tế.
 
-Các kiểm tra này cố ý fail fast để tránh train trên artifact không cùng protocol.
+Các kiểm tra mask chỉ chạy khi `load_masks=True`. Baseline classification truyền `False` để không mở/giải nén NPZ không được sử dụng; location-aware pipeline vẫn giữ chế độ đầy đủ. Các kiểm tra này cố ý fail fast để tránh train trên artifact không cùng protocol.
 
 ## 4. Training Framework
 
@@ -345,9 +350,11 @@ Script gọi `set_seed` trước khi tạo Dataset, DataLoader và model. Device
 <processed_root>/splits/val.csv
 ```
 
-Train DataLoader dùng `shuffle=True` và một `torch.Generator` seed cố định. Validation không shuffle. `pin_memory` chỉ bật khi CUDA khả dụng. `num_workers` và batch size lấy từ config.
+Train DataLoader dùng `shuffle=True` và một `torch.Generator` seed cố định. Validation không shuffle. Trên CUDA, loader dùng pinned memory; mặc định có 2 persistent workers và prefetch 2 batch. Image/label được chuyển sang GPU với `non_blocking=True`.
 
-Mask vẫn được Dataset load và collate trong mỗi batch, nhưng classification engine hiện chỉ sử dụng `image`, `labels` và `image_id`. Mask được giữ sẵn để phục vụ localization evaluation và location-aware loss ở các phase sau.
+Test không được đọc trong `train.py`; `scripts/evaluate.py` chỉ được chạy sau khi đã khóa model và hyperparameter bằng validation.
+
+Mask không được load trong baseline classification. `CXRDataset(load_masks=True)` vẫn giữ nguyên contract mask để phục vụ localization evaluation và location-aware loss ở các phase sau.
 
 ### 4.3 Model factory
 
@@ -383,12 +390,14 @@ Weighted BCE giúp lớp hiếm đóng góp nhiều hơn vào gradient. Tuy nhi�
 
 Module: [`src/training/engine.py`](../src/training/engine.py)
 
-`run_epoch(model, loader, criterion, device, optimizer=None)` dùng cùng flow cho train và validation:
+`run_epoch` dùng cùng flow cho train và validation, hỗ trợ CUDA autocast FP16, GradScaler, tqdm progress và đo throughput:
 
 - Có optimizer: `model.train()`, bật gradient, zero grad → forward → loss → backward → optimizer step.
 - Không có optimizer: `model.eval()`, tắt gradient, chỉ forward và tính loss.
 - Kiểm tra shape logits phải bằng shape labels và loss phải hữu hạn.
 - Tích lũy loss theo số ảnh, sigmoid probabilities, targets và `image_id`.
+- AMP tự tắt khi device không phải CUDA; CPU smoke test vẫn chạy FP32.
+- Progress bar hiển thị phần trăm batch, running loss, images/second và peak GPU memory.
 
 Return contract:
 
@@ -398,6 +407,9 @@ Return contract:
     "targets": np.ndarray,       # [N, 14]
     "probabilities": np.ndarray, # [N, 14]
     "image_ids": list[str],
+    "elapsed_seconds": float,
+    "images_per_second": float,
+    "peak_gpu_memory_gb": float,
 }
 ```
 
@@ -430,7 +442,7 @@ Sau mỗi epoch:
 4. So `macro_auroc` với `best_macro_auroc + min_delta`.
 5. Nếu cải thiện: reset `bad_epochs` và ghi `best.pt`.
 6. Nếu không: tăng `bad_epochs`.
-7. Luôn ghi `last.pt`, `history.csv` và `latest_val_metrics.json`.
+7. Luôn ghi `last.pt`, `history.csv` và `latest_val_metrics.json`; khi cải thiện ghi thêm `best_val_metrics.json`.
 8. Dừng trước epoch tiếp theo khi `bad_epochs >= patience`.
 
 [`src/utils/checkpoint.py`](../src/utils/checkpoint.py) ghi checkpoint qua file `.tmp` rồi replace sang path đích, giảm rủi ro checkpoint bị hỏng nếu quá trình ghi bị gián đoạn.
@@ -443,6 +455,8 @@ Checkpoint payload gồm:
 | `model_name` | Backbone identifier |
 | `model_state_dict` | Model weights |
 | `optimizer_state_dict` | AdamW state |
+| `amp_enabled` | AMP có thực sự hoạt động trên CUDA hay không |
+| `amp_scaler_state_dict` | GradScaler state để resume AMP đúng giai đoạn |
 | `best_macro_auroc` | Best validation score đến hiện tại |
 | `bad_epochs` | Số epoch liên tiếp không cải thiện |
 | `findings` | Danh sách/class order 14 finding |
@@ -450,7 +464,7 @@ Checkpoint payload gồm:
 | `config` | Full merged config |
 | `history` | Danh sách epoch records |
 
-Khi resume, code kiểm tra checkpoint có cùng class order và model name. Training tiếp tục từ `checkpoint["epoch"] + 1`.
+Khi resume, code kiểm tra checkpoint có cùng class order, model name, split fingerprint và AMP scaler state. Training tiếp tục từ `checkpoint["epoch"] + 1`.
 
 ### 4.8 Training artifact
 
@@ -459,8 +473,9 @@ Khi resume, code kiểm tra checkpoint có cùng class order và model name. Tra
 | Artifact | Nội dung |
 |---|---|
 | `config.json` | Full merged config của run |
-| `history.csv` | Epoch, train/val loss, validation macro-AUROC/AP/F1 |
+| `history.csv` | Loss, metrics, thời gian, throughput và peak GPU memory theo epoch |
 | `latest_val_metrics.json` | Per-class và macro metrics của epoch gần nhất |
+| `best_val_metrics.json` | Metrics của best checkpoint; notebook đọc trực tiếp để tránh chạy lại validation |
 
 `checkpoint_dir` chứa:
 
@@ -497,11 +512,13 @@ pip install -r requirements.txt
 python -m scripts.prepare_data
 
 python -m scripts.build_manifest --config configs/default.yaml
-python -m scripts.make_splits --config configs/default.yaml
-python -m scripts.preprocess --config configs/default.yaml
+python -m scripts.make_splits --config configs/default.yaml --overwrite
+python -m scripts.preprocess --config configs/default.yaml --splits-only --overwrite
 ```
 
 Các script được gọi bằng `python -m scripts.<module>` từ repo root để repo root nằm trên Python import path và các import `src.*` hoạt động ổn định.
+
+Notebook Colab cài `requirements-common.txt` và dùng PyTorch có sẵn trong runtime sau khi xác nhận CUDA, T4 và FP16 autocast. Local/controlled environment tiếp tục dùng `requirements.txt` để pin torch/torchvision.
 
 `--overwrite` chỉ nên dùng khi chủ động thay đổi data protocol. Split cũ nên được tái sử dụng cho mọi backbone.
 
@@ -520,8 +537,8 @@ ResNet-50 nên được chạy trước để kiểm tra toàn pipeline:
 ```powershell
 python -m scripts.train `
   --config configs/resnet50_baseline.yaml `
-  --checkpoint-dir outputs/checkpoints/resnet50_baseline `
-  --result-dir outputs/metrics/resnet50_baseline
+  --checkpoint-dir outputs/checkpoints/resnet50_baseline_s701515_seed42_amp `
+  --result-dir outputs/metrics/resnet50_baseline_s701515_seed42_amp
 ```
 
 Sau khi protocol ResNet ổn định, giữ nguyên data/split/training settings và chỉ đổi config/output directory cho DenseNet-121 và ViT-B/16.
@@ -531,10 +548,25 @@ Resume một run bị gián đoạn:
 ```powershell
 python -m scripts.train `
   --config configs/resnet50_baseline.yaml `
-  --checkpoint-dir outputs/checkpoints/resnet50_baseline `
-  --result-dir outputs/metrics/resnet50_baseline `
-  --resume outputs/checkpoints/resnet50_baseline/last.pt
+  --checkpoint-dir outputs/checkpoints/resnet50_baseline_s701515_seed42_amp `
+  --result-dir outputs/metrics/resnet50_baseline_s701515_seed42_amp `
+  --resume outputs/checkpoints/resnet50_baseline_s701515_seed42_amp/last.pt
 ```
+
+### 5.4 Đánh giá internal test
+
+Chỉ chạy sau khi model và hyperparameter đã được khóa bằng validation:
+
+```powershell
+python -m scripts.evaluate `
+  --config configs/resnet50_baseline.yaml `
+  --checkpoint outputs/checkpoints/resnet50_baseline_s701515_seed42_amp/best.pt `
+  --output-dir outputs/metrics/resnet50_baseline_s701515_seed42_amp/test `
+  --split test `
+  --threshold 0.5
+```
+
+Evaluator từ chối checkpoint không mang đúng `assignment_sha256` của split hiện tại.
 
 ## 6. Failure modes và cách chẩn đoán
 
@@ -544,7 +576,8 @@ python -m scripts.train `
 | `Unexpected reader count` | Một ảnh không có đúng ba reader | `get_reader_roster` |
 | `BBox outside JPG dimensions` | Bbox không hữu hạn hoặc ra ngoài ảnh | `validate_bbox` |
 | `already exists` | Artifact cũ tồn tại nhưng không có `--overwrite` | Các data script |
-| `Image leakage` | Train và validation trùng `image_id` | `make_splits.py` |
+| `Image leakage` | Hai split bất kỳ trùng `image_id` | `make_splits.py` |
+| `Checkpoint split fingerprint mismatch` | Resume/evaluate checkpoint từ protocol split khác | `train.py`, `evaluate.py` |
 | Class không có positive/negative | Split không đủ hai label values | Split, loss hoặc metrics |
 | `Class order mismatch` | Config, NPZ hoặc checkpoint khác thứ tự finding | Dataset hoặc resume |
 | `Manifest/mask label mismatch` | Artifact được sinh từ protocol khác | `CXRDataset` |
@@ -564,10 +597,9 @@ Framework hiện tại tạo nền tảng cho hai câu hỏi nghiên cứu:
 
 ## 8. Giới hạn hiện tại
 
-- Chưa có automated tests dù code có nhiều runtime validation.
-- Chưa có standalone `evaluate.py`, test prediction exporter hoặc result packager.
-- Chưa có final labeled test protocol; hiện chỉ có train/validation split.
-- Chưa có learning-rate scheduler, tqdm progress bar hoặc TensorBoard integration trong training loop.
+- Automated tests mới bao phủ split, projection processed split, fingerprint checkpoint và prediction schema; các module khác vẫn cần thêm coverage.
+- Đã có internal test 2.250 ảnh và standalone `evaluate.py`; chưa có result packager tổng quát.
+- Chưa có learning-rate scheduler hoặc TensorBoard integration; tqdm progress và timing đã được triển khai.
 - `use_augmentation` và `use_clahe` đang là `false`; code cũng chưa triển khai nhánh bật hai tính năng này.
 - `image_resize_mode`, `soft_mask_resize_mode` và `grayscale_to_rgb` được ghi trong config/metadata nhưng implementation hiện dùng cố định bilinear, area và grayscale-to-3-channel.
 - `training.monitor` khai báo `macro_auroc`, nhưng `train.py` hiện hard-code chính metric này thay vì đọc key.

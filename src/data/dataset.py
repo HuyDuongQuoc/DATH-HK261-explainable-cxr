@@ -16,11 +16,13 @@ class CXRDataset(Dataset):
         image_size,
         mean,
         std,
+        load_masks=True,
     ):
         self.table = pd.read_csv(manifest_path)
         self.root = Path(processed_root)
         self.findings = list(findings)
         self.image_size = image_size
+        self.load_masks = bool(load_masks)
         self.transform = build_image_transform(
             mean=mean,
             std=std,
@@ -57,8 +59,6 @@ class CXRDataset(Dataset):
 
         image_path = self.root / row["image_path"]
 
-        mask_path = self.root / row["mask_path"]
-
         with Image.open(image_path) as source:
             if source.size != (
                 self.image_size,
@@ -79,6 +79,16 @@ class CXRDataset(Dataset):
             ),
             dtype=torch.float32,
         )
+
+        sample = {
+            "image": image,
+            "labels": labels,
+            "image_id": str(row["image_id"]),
+        }
+        if not self.load_masks:
+            return sample
+
+        mask_path = self.root / row["mask_path"]
 
         with np.load(
             mask_path,
@@ -171,14 +181,10 @@ class CXRDataset(Dataset):
                 "label/mask state"
             )
 
-        return {
-            "image": image,
-            "labels": labels,
+        sample.update({
             "soft_masks": soft_masks,
             "union_masks": union_masks,
             "mask_valid": mask_valid,
             "positive_reader_counts": positive_reader_counts,
-            "image_id": str(
-                row["image_id"]
-            ),
-        }
+        })
+        return sample
