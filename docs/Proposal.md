@@ -216,7 +216,7 @@ Train/val/test thế nào?
 | **Tên công việc**        | Xây dựng experimental split                                                                |
 | **Mục tiêu công việc**   | Bảo đảm validation dùng tuning và test chỉ dùng cuối cùng                                  |
 | **Điều kiện hoàn thành** | Có file split cố định lưu `image_id`; tất cả experiment sử dụng cùng split                 |
-| **Mô tả chi tiết**       | Split 15.000 training images thành train/validation; official test giữ riêng; seed cố định |
+| **Mô tả chi tiết**       | Split 15.000 ảnh có ground truth thành 10.500 train, 2.250 validation và 2.250 internal test bằng multilabel stratification, seed 42; không dùng `data/raw/test` vì thiếu ground truth trong workspace |
 
 ### Task 2.5 — Dataset/DataLoader
 

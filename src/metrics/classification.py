@@ -36,7 +36,7 @@ def compute_classification_metrics(
         if np.unique(target).size != 2:
             raise ValueError(
                 f"AUROC is undefined for {finding}. "
-                "Check the validation split."
+                "Check the evaluation split."
             )
 
         precision, recall, f1, _ = (

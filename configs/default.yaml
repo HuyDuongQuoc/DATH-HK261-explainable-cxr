@@ -32,7 +32,9 @@ data:
   positive_votes: 2
   minority_policy: negative
 
+  train_fraction: 0.70
   val_fraction: 0.15
+  test_fraction: 0.15
 
 preprocessing:
   image_size: 224
@@ -61,7 +63,11 @@ model:
 
 training:
   batch_size: 8
-  num_workers: 0
+  num_workers: 2
+  persistent_workers: true
+  prefetch_factor: 2
+  use_amp: true
+  show_progress: true
 
   epochs: 30
   learning_rate: 0.0001

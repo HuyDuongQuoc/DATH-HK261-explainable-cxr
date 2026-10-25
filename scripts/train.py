@@ -8,6 +8,11 @@ import torch
 from torch.utils.data import DataLoader
 
 from src.data.dataset import CXRDataset
+from src.data.loader import build_loader_kwargs
+from src.data.protocol import (
+    load_split_metadata,
+    validate_checkpoint_protocol,
+)
 from src.losses.classification_loss import (
     build_classification_loss,
 )
@@ -60,6 +65,9 @@ def main():
     )
 
     split_root = processed_root / "splits"
+    split_metadata = load_split_metadata(split_root)
+    split_assignment_sha256 = split_metadata["assignment_sha256"]
+    config["data"]["split_assignment_sha256"] = split_assignment_sha256
 
     preprocessing_config = config["preprocessing"]
 
@@ -70,6 +78,7 @@ def main():
         image_size=preprocessing_config["image_size"],
         mean=preprocessing_config["mean"],
         std=preprocessing_config["std"],
+        load_masks=False,
     )
 
     val_dataset = CXRDataset(
@@ -79,9 +88,14 @@ def main():
         image_size=preprocessing_config["image_size"],
         mean=preprocessing_config["mean"],
         std=preprocessing_config["std"],
+        load_masks=False,
     )
 
     training_config = config["training"]
+    loader_kwargs = build_loader_kwargs(
+        training_config,
+        pin_memory=torch.cuda.is_available(),
+    )
 
     train_generator = (
         torch.Generator()
@@ -90,19 +104,15 @@ def main():
 
     train_loader = DataLoader(
         train_dataset,
-        batch_size=training_config["batch_size"],
         shuffle=True,
-        num_workers=training_config["num_workers"],
         generator=train_generator,
-        pin_memory=torch.cuda.is_available(),
+        **loader_kwargs,
     )
 
     val_loader = DataLoader(
         val_dataset,
-        batch_size=training_config["batch_size"],
         shuffle=False,
-        num_workers=training_config["num_workers"],
-        pin_memory=torch.cuda.is_available(),
+        **loader_kwargs,
     )
 
     device = torch.device(
@@ -116,6 +126,12 @@ def main():
         num_classes=len(findings),
         pretrained=config["model"]["pretrained"],
     ).to(device)
+    amp_enabled = bool(
+        training_config["use_amp"] and device.type == "cuda"
+    )
+    scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
+    config["training"]["amp_active"] = amp_enabled
+    config["training"]["device"] = str(device)
 
     train_labels = (
         train_dataset.table[findings].to_numpy(dtype=float)
@@ -162,14 +178,18 @@ def main():
             checkpoint_path=args.resume,
             model=model,
             optimizer=optimizer,
+            scaler=scaler,
             device=device,
         )
 
-        if checkpoint["findings"] != findings:
-            raise ValueError("Checkpoint class order mismatch")
-
-        if checkpoint["model_name"] != config["model"]["name"]:
-            raise ValueError("Checkpoint backbone mismatch")
+        validate_checkpoint_protocol(
+            checkpoint=checkpoint,
+            model_name=config["model"]["name"],
+            findings=findings,
+            assignment_sha256=split_assignment_sha256,
+        )
+        if checkpoint.get("amp_enabled") != amp_enabled:
+            raise ValueError("Checkpoint AMP protocol mismatch")
 
         start_epoch = checkpoint["epoch"] + 1
 
@@ -203,6 +223,12 @@ def main():
             criterion=criterion,
             device=device,
             optimizer=optimizer,
+            scaler=scaler,
+            use_amp=amp_enabled,
+            show_progress=training_config["show_progress"],
+            description=(
+                f"Epoch {epoch + 1:02d}/{training_config['epochs']:02d} — train"
+            ),
         )
 
         val_result = run_epoch(
@@ -211,6 +237,12 @@ def main():
             criterion=criterion,
             device=device,
             optimizer=None,
+            scaler=None,
+            use_amp=amp_enabled,
+            show_progress=training_config["show_progress"],
+            description=(
+                f"Epoch {epoch + 1:02d}/{training_config['epochs']:02d} — val"
+            ),
         )
 
         val_metrics = (
@@ -239,6 +271,14 @@ def main():
             "val_macro_auroc": (current_score),
             "val_macro_ap": val_metrics["macro_average_precision"],
             "val_macro_f1": val_metrics["macro_f1"],
+            "train_seconds": train_result["elapsed_seconds"],
+            "val_seconds": val_result["elapsed_seconds"],
+            "train_images_per_second": train_result["images_per_second"],
+            "val_images_per_second": val_result["images_per_second"],
+            "peak_gpu_memory_gb": max(
+                train_result["peak_gpu_memory_gb"],
+                val_result["peak_gpu_memory_gb"],
+            ),
         }
 
         history.append(epoch_record)
@@ -251,12 +291,35 @@ def main():
             "best_macro_auroc": best_macro_auroc,
             "bad_epochs": bad_epochs,
             "findings": findings,
+            "split_assignment_sha256": split_assignment_sha256,
+            "amp_enabled": amp_enabled,
+            "amp_scaler_state_dict": scaler.state_dict(),
             "pos_weight": pos_weight.detach().cpu(),
             "config": config,
             "history": history,
         }
 
         if improved:
+            best_metrics_payload = {
+                **val_metrics,
+                "val_loss": float(val_result["loss"]),
+                "checkpoint_epoch": epoch + 1,
+                "checkpoint_file": "best.pt",
+                "threshold": 0.5,
+                "amp_enabled": amp_enabled,
+                "split_assignment_sha256": split_assignment_sha256,
+                "val_seconds": val_result["elapsed_seconds"],
+                "val_images_per_second": val_result["images_per_second"],
+            }
+            (
+                result_dir / "best_val_metrics.json"
+            ).write_text(
+                json.dumps(
+                    best_metrics_payload,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
             save_checkpoint(
                 checkpoint,
                 checkpoint_dir / "best.pt",

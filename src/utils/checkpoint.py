@@ -32,6 +32,7 @@ def load_checkpoint(
     checkpoint_path,
     model,
     optimizer=None,
+    scaler=None,
     device="cpu",
 ):
     checkpoint = torch.load(
@@ -50,5 +51,12 @@ def load_checkpoint(
                 "optimizer_state_dict"
             ]
         )
+
+    if scaler is not None:
+        scaler_state = checkpoint.get("amp_scaler_state_dict")
+        if scaler.is_enabled() and scaler_state is None:
+            raise ValueError("AMP checkpoint is missing GradScaler state")
+        if scaler_state is not None:
+            scaler.load_state_dict(scaler_state)
 
     return checkpoint
