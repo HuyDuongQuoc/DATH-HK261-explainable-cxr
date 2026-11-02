@@ -1,0 +1,11 @@
+{
+  "external_test_manifest.csv": "1a9628988beed9dc2f3b998b2b925755d52f3c2b0fa72af32b2f2dc92439f218",
+  "external_test_metadata.json": "a39b2c74e9b32a85ac67d6779209dda32e67838b5369a0ed1486ecfa9556fc16",
+  "README.md": "bfe8c661dffa135689ffffd1872f5cb25b315e870cb4e50d045ddbca458d1a77",
+  "split_assignments.csv": "e75a358e18fe50c2dca6af05301136cdcade7fcd9540673fed0c1180ce53bccf",
+  "split_metadata.json": "67a81fb5e2d6fbe2f642bc7146d16ffe2f74c487e60abea10ed9aaba46a18e10",
+  "split_summary.csv": "cd3aabeecc327a8030c887668be6854413a5c7b8a1d3750065f4599176522eb8",
+  "train_manifest.csv": "bea6338310f7bd0da56c0c4c7a38a63fa92ea4ad09a1974a1932c09848c39e9e",
+  "val_manifest.csv": "ca878f9290e4f5ac4f64e47325f0c2451277d9c15f2c9bcb528e7816367290fc",
+  "validation_ids.csv": "4cb9b0dab021914cea37808e5257e5f5f9b0ec102c8a4e333297abd44c03524e"
+}

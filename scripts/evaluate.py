@@ -1,10 +1,15 @@
 import argparse
 import json
 from pathlib import Path
+import sys
 
 import numpy as np
 import pandas as pd
 import torch
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 from torch.utils.data import DataLoader
 
 from src.data.dataset import CXRDataset
@@ -13,11 +18,11 @@ from src.data.protocol import (
     load_split_metadata,
     validate_checkpoint_protocol,
 )
-from src.data.splitting import file_sha256
 from src.metrics.classification import compute_classification_metrics
 from src.models.factory import build_model
 from src.training.engine import run_epoch
 from src.utils.checkpoint import load_checkpoint
+from src.utils.checksums import file_sha256
 from src.utils.config import load_config
 from src.utils.seed import set_seed
 
@@ -51,14 +56,29 @@ def main():
     config = load_config(args.config)
     set_seed(config["seed"])
     findings = config["data"]["target_findings"]
-    processed_root = Path(config["data"]["processed_root"])
-    split_root = processed_root / "splits"
-    split_metadata = load_split_metadata(split_root)
+    data_config = config["data"]
+    protocol_root = Path(data_config["protocol_dir"])
+    split_metadata = load_split_metadata(protocol_root)
+    if split_metadata.get("protocol_id") != data_config["protocol_id"]:
+        raise ValueError("Configured data protocol does not match split metadata")
     assignment = split_metadata["assignment_sha256"]
+
+    if args.split == "val":
+        processed_root = Path(data_config["processed_root"])
+        manifest_path = Path(data_config["val_manifest_path"])
+        source_annotation_sha256 = None
+    else:
+        external = data_config["external_test"]
+        processed_root = Path(external["processed_root"])
+        manifest_path = Path(external["manifest_path"])
+        external_metadata = json.loads(
+            (protocol_root / "external_test_metadata.json").read_text(encoding="utf-8")
+        )
+        source_annotation_sha256 = external_metadata["annotation_sha256"]
 
     preprocessing = config["preprocessing"]
     dataset = CXRDataset(
-        manifest_path=split_root / f"{args.split}.csv",
+        manifest_path=manifest_path,
         processed_root=processed_root,
         findings=findings,
         image_size=preprocessing["image_size"],
@@ -96,6 +116,7 @@ def main():
         model_name=config["model"]["name"],
         findings=findings,
         assignment_sha256=assignment,
+        protocol_id=data_config["protocol_id"],
     )
     if "pos_weight" not in checkpoint:
         raise ValueError("Checkpoint is missing pos_weight")
@@ -159,6 +180,10 @@ def main():
         "checkpoint_sha256": file_sha256(args.checkpoint),
         "checkpoint_epoch": int(checkpoint["epoch"]) + 1,
         "split_assignment_sha256": assignment,
+        "data_protocol_id": data_config["protocol_id"],
+        "dataset_manifest": str(manifest_path),
+        "dataset_manifest_sha256": file_sha256(manifest_path),
+        "source_annotation_sha256": source_annotation_sha256,
         "amp_enabled": amp_enabled,
         "data_loader": loader_kwargs,
         "findings": findings,

@@ -51,4 +51,16 @@ def load_config(config_path):
     if len(findings) != len(set(findings)):
         raise ValueError("target_findings contains duplicates")
 
+    data = config["data"]
+    fractions = (
+        float(data["train_fraction"]),
+        float(data["val_fraction"]),
+    )
+    if any(value <= 0 for value in fractions):
+        raise ValueError("train/val fractions must be positive")
+    if abs(sum(fractions) - 1.0) > 1e-9:
+        raise ValueError("train/val fractions must sum to 1")
+    if not data.get("protocol_id"):
+        raise ValueError("data.protocol_id is required")
+
     return config

@@ -14,11 +14,30 @@ __pycache__/
 .idea/
 docs/Secrets.md
 
-# Dataset
+# Dataset source annotations are versioned; image and binary artifacts are not.
 data/raw/*
-!data/raw/test.csv
-data/processed/
+!data/raw/.gitkeep
+!data/raw/*.csv
+!data/raw/*.json
+
+data/processed/**
+!data/processed/.gitkeep
+data/interim/**
+!data/interim/.gitkeep
+
+data/**/*.jpg
+data/**/*.jpeg
+data/**/*.png
+data/**/*.bmp
+data/**/*.tif
+data/**/*.tiff
 data/**/*.dcm
+data/**/*.npz
+data/**/*.npy
+data/**/*.zip
+data/**/*.7z
+data/**/*.tar
+data/**/*.gz
 *.dcm
 
 # Models / checkpoints
@@ -35,7 +54,8 @@ logs/
 
 # OS
 .DS_Store
-Thumbs.dbnotebooks/dath_cxr_repo/
+Thumbs.db
+notebooks/dath_cxr_repo/
 
 # vibe cod
 .commandcode/

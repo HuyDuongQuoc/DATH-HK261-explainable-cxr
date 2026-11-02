@@ -182,6 +182,7 @@ def test_notebook_declares_amp_progress_and_no_repeated_validation():
     )
     assert "requirements-common.txt" in source
     assert "AMP FP16 probe: OK" in source
-    assert "baseline_s701515_seed42_amp" in source
+    assert "baseline_s8515_exttest_v1_seed42_amp" in source
+    assert "External test is locked" in source
     assert "enumerate(EXPERIMENTS, start=1)" in source
     assert "evaluate_best_checkpoint" not in source

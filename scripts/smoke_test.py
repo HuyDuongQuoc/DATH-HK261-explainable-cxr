@@ -1,9 +1,14 @@
 import argparse
 import json
 from pathlib import Path
+import sys
 
 import torch
 from torch import nn
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.models.factory import build_model
 from src.utils.config import load_config

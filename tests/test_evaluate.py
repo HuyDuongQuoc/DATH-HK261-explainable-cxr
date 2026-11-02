@@ -10,12 +10,14 @@ def test_checkpoint_protocol_accepts_matching_split_and_rejects_old_split():
         "model_name": "resnet50",
         "findings": ["a", "b"],
         "split_assignment_sha256": "new-split",
+        "data_protocol_id": "protocol-v1",
     }
     validate_checkpoint_protocol(
         checkpoint,
         model_name="resnet50",
         findings=["a", "b"],
         assignment_sha256="new-split",
+        protocol_id="protocol-v1",
     )
 
     with pytest.raises(ValueError, match="split fingerprint"):
@@ -24,6 +26,16 @@ def test_checkpoint_protocol_accepts_matching_split_and_rejects_old_split():
             model_name="resnet50",
             findings=["a", "b"],
             assignment_sha256="old-split",
+            protocol_id="protocol-v1",
+        )
+
+    with pytest.raises(ValueError, match="data protocol"):
+        validate_checkpoint_protocol(
+            checkpoint,
+            model_name="resnet50",
+            findings=["a", "b"],
+            assignment_sha256="new-split",
+            protocol_id="protocol-v2",
         )
 
 

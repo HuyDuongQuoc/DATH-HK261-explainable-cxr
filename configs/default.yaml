@@ -4,13 +4,24 @@ data:
   raw_root: data/raw
   annotation_csv: data/raw/train.csv
 
+  protocol_id: vindr_s8515_exttest_v1
+  protocol_dir: data/protocols/vindr_s8515_exttest_v1
+  validation_ids_path: data/protocols/vindr_s8515_exttest_v1/validation_ids.csv
+  train_manifest_path: data/protocols/vindr_s8515_exttest_v1/train_manifest.csv
+  val_manifest_path: data/protocols/vindr_s8515_exttest_v1/val_manifest.csv
+
   manifest_path: data/processed/manifest.csv
   consensus_boxes_path: data/processed/consensus_boxes.csv
   metadata_path: data/processed/metadata.json
 
-  split_dir: data/processed/splits
-
   processed_root: data/processed/consensus_v1_224
+
+  external_test:
+    annotation_csv: data/raw/test.csv
+    image_dir: data/raw/test
+    processed_root: data/processed/consensus_test_v1_224
+    manifest_path: data/protocols/vindr_s8515_exttest_v1/external_test_manifest.csv
+    reader_id: consensus
 
   target_findings:
     - Aortic enlargement
@@ -32,9 +43,8 @@ data:
   positive_votes: 2
   minority_policy: negative
 
-  train_fraction: 0.70
+  train_fraction: 0.85
   val_fraction: 0.15
-  test_fraction: 0.15
 
 preprocessing:
   image_size: 224

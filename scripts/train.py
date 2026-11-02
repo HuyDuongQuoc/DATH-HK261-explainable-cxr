@@ -1,9 +1,14 @@
 import argparse
 import json
 from pathlib import Path
+import sys
 
 import pandas as pd
 import torch
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from torch.utils.data import DataLoader
 
@@ -64,15 +69,17 @@ def main():
         config["data"]["processed_root"]
     )
 
-    split_root = processed_root / "splits"
-    split_metadata = load_split_metadata(split_root)
+    protocol_root = Path(config["data"]["protocol_dir"])
+    split_metadata = load_split_metadata(protocol_root)
+    if split_metadata.get("protocol_id") != config["data"]["protocol_id"]:
+        raise ValueError("Configured data protocol does not match split metadata")
     split_assignment_sha256 = split_metadata["assignment_sha256"]
     config["data"]["split_assignment_sha256"] = split_assignment_sha256
 
     preprocessing_config = config["preprocessing"]
 
     train_dataset = CXRDataset(
-        manifest_path=split_root / "train.csv",
+        manifest_path=config["data"]["train_manifest_path"],
         processed_root=processed_root,
         findings=findings,
         image_size=preprocessing_config["image_size"],
@@ -82,7 +89,7 @@ def main():
     )
 
     val_dataset = CXRDataset(
-        manifest_path=split_root / "val.csv",
+        manifest_path=config["data"]["val_manifest_path"],
         processed_root=processed_root,
         findings=findings,
         image_size=preprocessing_config["image_size"],
@@ -187,6 +194,7 @@ def main():
             model_name=config["model"]["name"],
             findings=findings,
             assignment_sha256=split_assignment_sha256,
+            protocol_id=config["data"]["protocol_id"],
         )
         if checkpoint.get("amp_enabled") != amp_enabled:
             raise ValueError("Checkpoint AMP protocol mismatch")
@@ -292,6 +300,7 @@ def main():
             "bad_epochs": bad_epochs,
             "findings": findings,
             "split_assignment_sha256": split_assignment_sha256,
+            "data_protocol_id": config["data"]["protocol_id"],
             "amp_enabled": amp_enabled,
             "amp_scaler_state_dict": scaler.state_dict(),
             "pos_weight": pos_weight.detach().cpu(),
@@ -308,6 +317,7 @@ def main():
                 "threshold": 0.5,
                 "amp_enabled": amp_enabled,
                 "split_assignment_sha256": split_assignment_sha256,
+                "data_protocol_id": config["data"]["protocol_id"],
                 "val_seconds": val_result["elapsed_seconds"],
                 "val_images_per_second": val_result["images_per_second"],
             }

@@ -20,3 +20,7 @@ python scripts/prepare_data.py
 ```
 
 ## EDA
+
+## Data protocol 85/15 + external test
+
+Protocol hiện hành là `vindr_s8515_exttest_v1`: 12.750 train, 2.250 validation cố định và 3.000 external-test images có ground truth. Xem [docs/data_protocol_s8515.md](docs/data_protocol_s8515.md) để chạy đúng workflow trên codebase hiện tại.
