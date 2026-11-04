@@ -22,7 +22,9 @@ from src.losses.classification_loss import (
     build_classification_loss,
 )
 from src.metrics.classification import (
+    THRESHOLD_STRATEGY,
     compute_classification_metrics,
+    optimize_f1_thresholds,
 )
 from src.models.factory import build_model
 from src.training.engine import run_epoch
@@ -30,6 +32,7 @@ from src.utils.checkpoint import (
     load_checkpoint,
     save_checkpoint,
 )
+from src.utils.checksums import file_sha256
 from src.utils.config import load_config
 from src.utils.seed import set_seed
 
@@ -96,6 +99,9 @@ def main():
         mean=preprocessing_config["mean"],
         std=preprocessing_config["std"],
         load_masks=False,
+    )
+    validation_manifest_sha256 = file_sha256(
+        config["data"]["val_manifest_path"]
     )
 
     training_config = config["training"]
@@ -198,6 +204,15 @@ def main():
         )
         if checkpoint.get("amp_enabled") != amp_enabled:
             raise ValueError("Checkpoint AMP protocol mismatch")
+        if checkpoint.get("threshold_strategy") != THRESHOLD_STRATEGY:
+            raise ValueError("Checkpoint threshold strategy mismatch")
+        if "decision_thresholds" not in checkpoint:
+            raise ValueError("Checkpoint is missing decision_thresholds")
+        if (
+            checkpoint.get("threshold_validation_manifest_sha256")
+            != validation_manifest_sha256
+        ):
+            raise ValueError("Checkpoint validation manifest mismatch")
 
         start_epoch = checkpoint["epoch"] + 1
 
@@ -253,14 +268,18 @@ def main():
             ),
         )
 
-        val_metrics = (
-            compute_classification_metrics(
-                targets=val_result["targets"],
-                probabilities=val_result["probabilities"],
-                findings=findings,
-                threshold=0.5,
-            )
+        decision_thresholds = optimize_f1_thresholds(
+            targets=val_result["targets"],
+            probabilities=val_result["probabilities"],
+            findings=findings,
         )
+        val_metrics = compute_classification_metrics(
+            targets=val_result["targets"],
+            probabilities=val_result["probabilities"],
+            findings=findings,
+            threshold=decision_thresholds,
+        )
+        threshold_values = list(decision_thresholds.values())
 
         current_score = val_metrics["macro_auroc"]
 
@@ -278,7 +297,10 @@ def main():
             "val_loss": val_result["loss"],
             "val_macro_auroc": (current_score),
             "val_macro_ap": val_metrics["macro_average_precision"],
-            "val_macro_f1": val_metrics["macro_f1"],
+            "val_macro_f1_tuned": val_metrics["macro_f1"],
+            "threshold_min": min(threshold_values),
+            "threshold_mean": sum(threshold_values) / len(threshold_values),
+            "threshold_max": max(threshold_values),
             "train_seconds": train_result["elapsed_seconds"],
             "val_seconds": val_result["elapsed_seconds"],
             "train_images_per_second": train_result["images_per_second"],
@@ -304,6 +326,10 @@ def main():
             "amp_enabled": amp_enabled,
             "amp_scaler_state_dict": scaler.state_dict(),
             "pos_weight": pos_weight.detach().cpu(),
+            "decision_thresholds": decision_thresholds,
+            "threshold_strategy": THRESHOLD_STRATEGY,
+            "threshold_validation_manifest_sha256": validation_manifest_sha256,
+            "tuned_validation_macro_f1": val_metrics["macro_f1"],
             "config": config,
             "history": history,
         }
@@ -314,7 +340,9 @@ def main():
                 "val_loss": float(val_result["loss"]),
                 "checkpoint_epoch": epoch + 1,
                 "checkpoint_file": "best.pt",
-                "threshold": 0.5,
+                "decision_thresholds": decision_thresholds,
+                "threshold_strategy": THRESHOLD_STRATEGY,
+                "threshold_validation_manifest_sha256": validation_manifest_sha256,
                 "amp_enabled": amp_enabled,
                 "split_assignment_sha256": split_assignment_sha256,
                 "data_protocol_id": config["data"]["protocol_id"],
@@ -350,7 +378,12 @@ def main():
             / "latest_val_metrics.json"
         ).write_text(
             json.dumps(
-                val_metrics,
+                {
+                    **val_metrics,
+                    "decision_thresholds": decision_thresholds,
+                    "threshold_strategy": THRESHOLD_STRATEGY,
+                    "threshold_validation_manifest_sha256": validation_manifest_sha256,
+                },
                 indent=2,
             ),
             encoding="utf-8",

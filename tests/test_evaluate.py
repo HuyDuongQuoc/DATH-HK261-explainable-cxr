@@ -1,7 +1,12 @@
 import numpy as np
 import pytest
 
-from scripts.evaluate import build_predictions_table
+from scripts.evaluate import (
+    build_predictions_table,
+    select_decision_thresholds,
+)
+from src.metrics.classification import THRESHOLD_STRATEGY
+from src.utils.checksums import file_sha256
 from src.data.protocol import validate_checkpoint_protocol
 
 
@@ -64,3 +69,59 @@ def test_predictions_table_has_one_row_per_image_and_all_outputs():
     }
     assert list(table["prediction::finding_a"]) == [1, 0, 1]
     assert list(table["prediction::finding_b"]) == [0, 1, 0]
+
+
+def test_predictions_table_supports_per_class_thresholds():
+    table = build_predictions_table(
+        image_ids=["image_a", "image_b"],
+        targets=np.asarray([[1, 0], [0, 1]], dtype=np.uint8),
+        probabilities=np.asarray([[0.4, 0.4], [0.3, 0.6]], dtype=float),
+        findings=["finding_a", "finding_b"],
+        threshold={"finding_a": 0.35, "finding_b": 0.5},
+    )
+
+    assert list(table["prediction::finding_a"]) == [1, 0]
+    assert list(table["prediction::finding_b"]) == [0, 1]
+
+
+def test_evaluation_uses_checkpoint_thresholds_and_allows_scalar_override(tmp_path):
+    validation_manifest = tmp_path / "val_manifest.csv"
+    validation_manifest.write_text("image_id\nexample\n", encoding="utf-8")
+    checkpoint = {
+        "decision_thresholds": {"a": 0.25, "b": 0.75},
+        "threshold_strategy": THRESHOLD_STRATEGY,
+        "threshold_validation_manifest_sha256": file_sha256(validation_manifest),
+    }
+
+    thresholds, source, strategy = select_decision_thresholds(
+        checkpoint,
+        findings=["a", "b"],
+        threshold_override=None,
+        validation_manifest_path=validation_manifest,
+    )
+    assert thresholds == {"a": 0.25, "b": 0.75}
+    assert source == "checkpoint"
+    assert strategy == THRESHOLD_STRATEGY
+
+    thresholds, source, strategy = select_decision_thresholds(
+        {},
+        findings=["a", "b"],
+        threshold_override=0.4,
+        validation_manifest_path=validation_manifest,
+    )
+    assert thresholds == {"a": 0.4, "b": 0.4}
+    assert source == "cli_override"
+    assert strategy == "scalar_override"
+
+
+def test_evaluation_rejects_checkpoint_without_tuned_thresholds(tmp_path):
+    validation_manifest = tmp_path / "val_manifest.csv"
+    validation_manifest.write_text("image_id\nexample\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="decision_thresholds"):
+        select_decision_thresholds(
+            {},
+            findings=["a"],
+            threshold_override=None,
+            validation_manifest_path=validation_manifest,
+        )

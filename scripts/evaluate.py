@@ -18,7 +18,12 @@ from src.data.protocol import (
     load_split_metadata,
     validate_checkpoint_protocol,
 )
-from src.metrics.classification import compute_classification_metrics
+from src.metrics.classification import (
+    THRESHOLD_STRATEGY,
+    compute_classification_metrics,
+    resolve_decision_thresholds,
+    threshold_mapping,
+)
 from src.models.factory import build_model
 from src.training.engine import run_epoch
 from src.utils.checkpoint import load_checkpoint
@@ -30,7 +35,10 @@ from src.utils.seed import set_seed
 def build_predictions_table(image_ids, targets, probabilities, findings, threshold):
     targets = np.asarray(targets)
     probabilities = np.asarray(probabilities)
-    predictions = (probabilities >= threshold).astype(np.uint8)
+    thresholds = resolve_decision_thresholds(threshold, findings)
+    predictions = (
+        probabilities >= thresholds.reshape(1, -1)
+    ).astype(np.uint8)
     table = {"image_id": list(image_ids)}
 
     for index, finding in enumerate(findings):
@@ -41,16 +49,51 @@ def build_predictions_table(image_ids, targets, probabilities, findings, thresho
     return pd.DataFrame(table)
 
 
+def select_decision_thresholds(
+    checkpoint,
+    findings,
+    threshold_override,
+    validation_manifest_path,
+):
+    if threshold_override is not None:
+        return (
+            threshold_mapping(threshold_override, findings),
+            "cli_override",
+            "scalar_override",
+        )
+
+    if "decision_thresholds" not in checkpoint:
+        raise ValueError("Checkpoint is missing decision_thresholds")
+    if checkpoint.get("threshold_strategy") != THRESHOLD_STRATEGY:
+        raise ValueError("Checkpoint threshold strategy mismatch")
+    validation_manifest_sha256 = file_sha256(validation_manifest_path)
+    if (
+        checkpoint.get("threshold_validation_manifest_sha256")
+        != validation_manifest_sha256
+    ):
+        raise ValueError("Checkpoint validation manifest mismatch")
+    return (
+        threshold_mapping(checkpoint["decision_thresholds"], findings),
+        "checkpoint",
+        THRESHOLD_STRATEGY,
+    )
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--split", choices=("val", "test"), default="test")
-    parser.add_argument("--threshold", type=float, default=0.5)
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=None,
+        help="Optional scalar override. Omit to use validation-tuned checkpoint thresholds.",
+    )
     args = parser.parse_args()
 
-    if not 0.0 <= args.threshold <= 1.0:
+    if args.threshold is not None and not 0.0 <= args.threshold <= 1.0:
         raise ValueError("threshold must be in [0, 1]")
 
     config = load_config(args.config)
@@ -121,6 +164,17 @@ def main():
     if "pos_weight" not in checkpoint:
         raise ValueError("Checkpoint is missing pos_weight")
 
+    (
+        decision_thresholds,
+        threshold_source,
+        threshold_strategy,
+    ) = select_decision_thresholds(
+        checkpoint=checkpoint,
+        findings=findings,
+        threshold_override=args.threshold,
+        validation_manifest_path=data_config["val_manifest_path"],
+    )
+
     criterion = torch.nn.BCEWithLogitsLoss(
         pos_weight=checkpoint["pos_weight"].to(device)
     )
@@ -139,12 +193,14 @@ def main():
         targets=result["targets"],
         probabilities=result["probabilities"],
         findings=findings,
-        threshold=args.threshold,
+        threshold=decision_thresholds,
     )
     metrics.update(
         {
             "split": args.split,
-            "threshold": args.threshold,
+            "decision_thresholds": decision_thresholds,
+            "threshold_source": threshold_source,
+            "threshold_strategy": threshold_strategy,
             "loss": float(result["loss"]),
             "num_images": len(dataset),
             "elapsed_seconds": result["elapsed_seconds"],
@@ -157,7 +213,7 @@ def main():
         targets=result["targets"],
         probabilities=result["probabilities"],
         findings=findings,
-        threshold=args.threshold,
+        threshold=decision_thresholds,
     )
 
     output_dir = Path(args.output_dir)
@@ -173,7 +229,9 @@ def main():
     )
     evaluation_metadata = {
         "split": args.split,
-        "threshold": args.threshold,
+        "decision_thresholds": decision_thresholds,
+        "threshold_source": threshold_source,
+        "threshold_strategy": threshold_strategy,
         "num_images": len(dataset),
         "model_name": config["model"]["name"],
         "checkpoint": str(Path(args.checkpoint)),
