@@ -65,6 +65,15 @@ preprocessing:
     - 0.225
 
   use_augmentation: false
+  augmentation:
+    rotation_degrees: 7.0
+    translate_fraction: 0.03
+    scale:
+      - 0.95
+      - 1.05
+    intensity_probability: 0.5
+    brightness: 0.10
+    contrast: 0.10
   use_clahe: false
 
 model:

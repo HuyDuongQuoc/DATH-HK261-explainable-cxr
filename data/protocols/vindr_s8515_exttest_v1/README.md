@@ -6,4 +6,4 @@
 - External test chỉ dùng cho final evaluation.
 - Ảnh, masks, archives và checkpoints không nằm trong thư mục này và không được Git theo dõi.
 
-Xem `docs/data_protocol_s8515.md` để biết lệnh tái tạo, kiểm chứng, train và evaluate.
+Xem [`README.md`](../../../README.md#chuẩn-bị-dữ-liệu) ở repository root để biết lệnh tái tạo, kiểm chứng, train và evaluate.

@@ -37,6 +37,68 @@ from src.utils.config import load_config
 from src.utils.seed import set_seed
 
 
+MONITOR_LABELS = {
+    "macro_auroc": "macro-AUROC",
+    "macro_average_precision": "macro-AUPRC",
+}
+
+
+def build_augmentation_protocol(preprocessing_config):
+    enabled = bool(preprocessing_config["use_augmentation"])
+    return {
+        "enabled": enabled,
+        "config": preprocessing_config["augmentation"] if enabled else None,
+    }
+
+
+def resolve_monitor_score(metrics, monitor_name):
+    if monitor_name not in MONITOR_LABELS:
+        raise ValueError(f"Unsupported monitor: {monitor_name}")
+    return float(metrics[monitor_name])
+
+
+def monitor_improved(current_score, best_score, min_delta):
+    return float(current_score) > float(best_score) + float(min_delta)
+
+
+def resolve_resume_best_score(
+    checkpoint,
+    monitor_name,
+    augmentation_protocol,
+):
+    checkpoint_monitor = checkpoint.get("monitor_name")
+    if checkpoint_monitor is None:
+        if monitor_name != "macro_auroc" or "best_macro_auroc" not in checkpoint:
+            raise ValueError(
+                "Legacy checkpoint can only resume with macro_auroc; "
+                "start a fresh run directory for macro_average_precision"
+            )
+        best_score = checkpoint["best_macro_auroc"]
+    else:
+        if checkpoint_monitor != monitor_name:
+            raise ValueError("Checkpoint monitor mismatch")
+        if "best_monitor_score" not in checkpoint:
+            raise ValueError("Checkpoint is missing best_monitor_score")
+        best_score = checkpoint["best_monitor_score"]
+
+    checkpoint_augmentation = checkpoint.get("augmentation_protocol")
+    if checkpoint_augmentation is None:
+        checkpoint_config = checkpoint.get("config", {})
+        checkpoint_preprocessing = checkpoint_config.get("preprocessing", {})
+        checkpoint_augmentation = {
+            "enabled": bool(checkpoint_preprocessing.get("use_augmentation", False)),
+            "config": (
+                checkpoint_preprocessing.get("augmentation")
+                if checkpoint_preprocessing.get("use_augmentation", False)
+                else None
+            ),
+        }
+    if checkpoint_augmentation != augmentation_protocol:
+        raise ValueError("Checkpoint augmentation protocol mismatch")
+
+    return float(best_score)
+
+
 def main():
     parser = argparse.ArgumentParser()
 
@@ -80,6 +142,11 @@ def main():
     config["data"]["split_assignment_sha256"] = split_assignment_sha256
 
     preprocessing_config = config["preprocessing"]
+    training_config = config["training"]
+    monitor_name = training_config["monitor"]
+    monitor_label = MONITOR_LABELS[monitor_name]
+    augmentation_protocol = build_augmentation_protocol(preprocessing_config)
+    train_augmentation = augmentation_protocol["config"]
 
     train_dataset = CXRDataset(
         manifest_path=config["data"]["train_manifest_path"],
@@ -89,6 +156,7 @@ def main():
         mean=preprocessing_config["mean"],
         std=preprocessing_config["std"],
         load_masks=False,
+        augmentation_config=train_augmentation,
     )
 
     val_dataset = CXRDataset(
@@ -99,12 +167,12 @@ def main():
         mean=preprocessing_config["mean"],
         std=preprocessing_config["std"],
         load_masks=False,
+        augmentation_config=None,
     )
     validation_manifest_sha256 = file_sha256(
         config["data"]["val_manifest_path"]
     )
 
-    training_config = config["training"]
     loader_kwargs = build_loader_kwargs(
         training_config,
         pin_memory=torch.cuda.is_available(),
@@ -182,7 +250,7 @@ def main():
     )
 
     start_epoch = 0
-    best_macro_auroc = float("-inf")
+    best_monitor_score = float("-inf")
     bad_epochs = 0
     history = []
 
@@ -216,7 +284,11 @@ def main():
 
         start_epoch = checkpoint["epoch"] + 1
 
-        best_macro_auroc = checkpoint["best_macro_auroc"]
+        best_monitor_score = resolve_resume_best_score(
+            checkpoint=checkpoint,
+            monitor_name=monitor_name,
+            augmentation_protocol=augmentation_protocol,
+        )
 
         bad_epochs = checkpoint["bad_epochs"]
 
@@ -281,12 +353,19 @@ def main():
         )
         threshold_values = list(decision_thresholds.values())
 
-        current_score = val_metrics["macro_auroc"]
+        current_score = resolve_monitor_score(
+            val_metrics,
+            monitor_name,
+        )
 
-        improved = current_score > best_macro_auroc + training_config["min_delta"]
+        improved = monitor_improved(
+            current_score=current_score,
+            best_score=best_monitor_score,
+            min_delta=training_config["min_delta"],
+        )
 
         if improved:
-            best_macro_auroc = (current_score)
+            best_monitor_score = current_score
             bad_epochs = 0
         else:
             bad_epochs += 1
@@ -295,9 +374,11 @@ def main():
             "epoch": epoch + 1,
             "train_loss": train_result["loss"],
             "val_loss": val_result["loss"],
-            "val_macro_auroc": (current_score),
+            "val_macro_auroc": val_metrics["macro_auroc"],
             "val_macro_ap": val_metrics["macro_average_precision"],
             "val_macro_f1_tuned": val_metrics["macro_f1"],
+            "monitor_name": monitor_name,
+            "monitor_score": current_score,
             "threshold_min": min(threshold_values),
             "threshold_mean": sum(threshold_values) / len(threshold_values),
             "threshold_max": max(threshold_values),
@@ -318,11 +399,13 @@ def main():
             "model_name": config["model"]["name"],
             "model_state_dict":  model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
-            "best_macro_auroc": best_macro_auroc,
+            "monitor_name": monitor_name,
+            "best_monitor_score": best_monitor_score,
             "bad_epochs": bad_epochs,
             "findings": findings,
             "split_assignment_sha256": split_assignment_sha256,
             "data_protocol_id": config["data"]["protocol_id"],
+            "augmentation_protocol": augmentation_protocol,
             "amp_enabled": amp_enabled,
             "amp_scaler_state_dict": scaler.state_dict(),
             "pos_weight": pos_weight.detach().cpu(),
@@ -340,6 +423,8 @@ def main():
                 "val_loss": float(val_result["loss"]),
                 "checkpoint_epoch": epoch + 1,
                 "checkpoint_file": "best.pt",
+                "selection_metric": monitor_name,
+                "selection_score": current_score,
                 "decision_thresholds": decision_thresholds,
                 "threshold_strategy": THRESHOLD_STRATEGY,
                 "threshold_validation_manifest_sha256": validation_manifest_sha256,
@@ -380,6 +465,8 @@ def main():
             json.dumps(
                 {
                     **val_metrics,
+                    "selection_metric": monitor_name,
+                    "selection_score": current_score,
                     "decision_thresholds": decision_thresholds,
                     "threshold_strategy": THRESHOLD_STRATEGY,
                     "threshold_validation_manifest_sha256": validation_manifest_sha256,
@@ -393,8 +480,8 @@ def main():
 
     print(
         "Training completed. "
-        f"Best macro-AUROC: "
-        f"{best_macro_auroc:.4f}"
+        f"Best {monitor_label}: "
+        f"{best_monitor_score:.4f}"
     )
 
 

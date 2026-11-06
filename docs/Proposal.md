@@ -1,3 +1,5 @@
+> **Vai trò tài liệu:** đây là roadmap/mục tiêu nghiên cứu, không phải danh sách tính năng đã hoàn thành. Xem [`README.md`](../README.md) để biết trạng thái codebase và lệnh chạy hiện tại.
+
 Dựa trên proposal hiện tại, tui khuyên nên quản lý ĐATH theo kiểu **research project có milestone rõ ràng**, thay vì chia đơn giản theo “code model → làm web → viết báo cáo”. Lý do là đề tài của mình có hai câu hỏi nghiên cứu RQ1 và RQ2, nên từng phase phải tạo ra bằng chứng để trả lời được hai câu này. Proposal hiện tại cũng đã xác định pipeline từ EDA → baseline → localization → location-aware loss → analysis → prototype. 
 
 ## Tổng thể project
@@ -6,7 +8,7 @@ Dựa trên proposal hiện tại, tui khuyên nên quản lý ĐATH theo kiểu
 | ----- | ------------------------ | --------------------------------------------------- | ------------------------------ |
 | 0     | Project Setup            | Chuẩn hóa repo, môi trường, cách quản lý experiment | Repo chạy được, config, README |
 | 1     | Data Understanding & EDA | Hiểu VinDr-CXR và xác nhận protocol cho 14 finding  | Dataset specification          |
-| 2     | Data Pipeline            | Tạo pipeline train/val/test + bbox/mask             | Dataset/DataLoader hoàn chỉnh  |
+| 2     | Data Pipeline            | Tạo pipeline train/validation + external test + bbox/mask | Dataset/DataLoader hoàn chỉnh  |
 | 3     | Classification Baselines | Train ResNet, DenseNet, ViT                         | Baseline classification        |
 | 4     | Grad-CAM & Localization  | Đánh giá vùng mô hình tập trung                     | Kết quả RQ1                    |
 | 5     | Location-Aware Learning  | Xây loss mới + ablation                             | Kết quả RQ2                    |
@@ -173,7 +175,7 @@ Finding nào?
 Bao nhiêu mẫu?
 Label được tạo thế nào?
 BBox xử lý thế nào?
-Train/val/test thế nào?
+Train/validation/external test thế nào?
 ```
 
 **Chưa hoàn thành milestone này thì chưa nên train model.**
@@ -209,14 +211,14 @@ Train/val/test thế nào?
 | **Điều kiện hoàn thành** | Mỗi image/class positive có binary mask tương ứng                                                               |
 | **Mô tả chi tiết**       | Nếu có nhiều bbox cùng class, hợp nhất thành mask; resize mask theo resolution của activation map khi tính loss |
 
-### Task 2.4 — Train/Validation/Test split
+### Task 2.4 — Train/Validation + external-test protocol
 
 |                          | Nội dung                                                                                   |
 | ------------------------ | ------------------------------------------------------------------------------------------ |
-| **Tên công việc**        | Xây dựng experimental split                                                                |
-| **Mục tiêu công việc**   | Bảo đảm validation dùng tuning và test chỉ dùng cuối cùng                                  |
-| **Điều kiện hoàn thành** | Có file split cố định lưu `image_id`; tất cả experiment sử dụng cùng split                 |
-| **Mô tả chi tiết**       | Split 15.000 ảnh có ground truth thành 10.500 train, 2.250 validation và 2.250 internal test bằng multilabel stratification, seed 42; không dùng `data/raw/test` vì thiếu ground truth trong workspace |
+| **Tên công việc**        | Xây dựng experimental data protocol                                                        |
+| **Mục tiêu công việc**   | Bảo đảm validation chỉ dùng tuning và external test chỉ dùng đánh giá cuối cùng            |
+| **Điều kiện hoàn thành** | Có validation IDs, split assignment, metadata và checksum cố định; tất cả experiment sử dụng cùng protocol |
+| **Mô tả chi tiết**       | Protocol `vindr_s8515_exttest_v1` dùng 12.750 train và 2.250 validation cố định từ corpus 15.000 ảnh; 3.000 ảnh `data/raw/test` có consensus ground truth được giữ làm external test, không overlap và không dùng để chọn model/threshold |
 
 ### Task 2.5 — Dataset/DataLoader
 
@@ -681,10 +683,10 @@ Ví dụ:
 
 [P3] Location-Aware ViT
 [P3] CLAHE Ablation
-[P3] External Validation
+[P3] Additional External Validation
 ```
 
-Trong đó **Location-Aware ViT, CLAHE, external validation** không nên để trở thành thứ làm chậm phần nghiên cứu cốt lõi. Proposal cũng đã xem một số thành phần này là tùy tài nguyên/thời gian. 
+Trong đó **Location-Aware ViT, CLAHE và additional external validation ngoài external test đã chốt** không nên để trở thành thứ làm chậm phần nghiên cứu cốt lõi. Proposal cũng đã xem một số thành phần này là tùy tài nguyên/thời gian.
 
 ---
 
@@ -719,9 +721,15 @@ Tên GitHub:
 
 > **CXR Location-Aware XAI**
 
-Description:
+Description phản ánh codebase hiện tại:
+
+> **Reproducible multi-label chest X-ray classification baselines using CNNs and Vision Transformers on a fixed VinDr-CXR data protocol.**
+
+Description mục tiêu khi hoàn thành roadmap:
 
 > **Classification and location-aware explainable AI for chest X-ray analysis using CNNs, Vision Transformers and Grad-CAM.**
+
+Hai description được tách riêng vì source hiện tại mới hoàn thành data protocol và classification baselines. Grad-CAM, localization evaluation, location-aware loss và prototype vẫn là các phase tiếp theo, chưa phải tính năng đã có.
 
 Nếu muốn thiên hướng academic hơn nữa:
 
@@ -774,7 +782,7 @@ Details:
 - ImageNet pretrained ResNet-50.
 - Multi-label sigmoid output.
 - Weighted BCE.
-- Shared train/val/test split.
+- Shared `vindr_s8515_exttest_v1` protocol (train/validation + final-only external test).
 - Early stopping theo validation AUROC.
 - Lưu random seed, learning rate, batch size.
 ```
