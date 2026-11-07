@@ -12,7 +12,7 @@ Nghiên cứu phân loại đa nhãn và explainable AI trên ảnh X-quang ng�
 | Tiền xử lý ảnh 224×224 và tạo soft/union masks | Đã có |
 | Protocol train/validation cố định + external test | Đã có |
 | ResNet-50, DenseNet-121, ViT-B/16 classification baseline | Đã có |
-| Weighted BCE, AdamW, AMP, early stopping, resume checkpoint | Đã có |
+| Weighted BCE / sigmoid focal, AdamW, AMP, early stopping, resume checkpoint | Đã có |
 | Train-time augmentation bảo thủ và chọn checkpoint bằng macro-AUPRC | Đã có |
 | Threshold F1 riêng cho từng lớp, chỉ calibration trên validation | Đã có |
 | AUROC, Average Precision, Precision, Recall và F1 | Đã có |
@@ -42,7 +42,7 @@ notebooks/      EDA, Colab runner và orchestration thí nghiệm
 scripts/        CLI chuẩn bị dữ liệu, train, evaluate và verify
 src/data/       Annotation consensus, preprocessing, dataset và protocol
 src/models/     Model factory cho ResNet-50, DenseNet-121 và ViT-B/16
-src/losses/     Weighted BCE classification loss
+src/losses/     Weighted BCE và sigmoid focal classification loss
 src/metrics/    Classification metrics và validation-tuned thresholds
 src/training/   Training/evaluation epoch engine
 src/utils/      Config, seed, checkpoint và checksum helpers
@@ -191,6 +191,39 @@ Notebook tự resume `last.pt`, skip run hoàn tất, cập nhật bảng so sá
 `RUN_FINAL_TEST=False` là mặc định và Stage 1 không giải nén hoặc đánh giá external test. Có thể chia nhiều phiên Colab bằng `ACTIVE_MODELS`, `ACTIVE_WEIGHTINGS` và `MAX_NEW_RUNS_PER_SESSION`; registry 12 run và tiêu chí lựa chọn không thay đổi.
 
 Mỗi run lưu thêm `loss_metadata.json` và `best_val_predictions.csv`. Báo cáo tổng hợp nằm trong `analysis/`, gồm macro/per-class metrics, delta so với raw control, ranking, selection JSON, Markdown report và figures. Dataset archive không thay đổi và không cần upload lại.
+
+## Stage 2: focal loss với ba notebook 04
+
+Stage 2 khóa positive-weighting theo kết quả Stage 1 và train lại một BCE control trong cùng protocol với ba focal run:
+
+| Notebook | Model | Positive weighting | Runs |
+| --- | --- | --- | --- |
+| `notebooks/04_1_densenet121_focalloss.ipynb` | DenseNet-121 | sqrt-cap-3 | BCE, focal γ=0.5/1.0/1.5 |
+| `notebooks/04_2_resnet50_focalloss.ipynb` | ResNet-50 | raw ratio | BCE, focal γ=0.5/1.0/1.5 |
+| `notebooks/04_3_vit_b16_focalloss.ipynb` | ViT-B/16 | sqrt-cap-3 | BCE, focal γ=0.5/1.0/1.5 |
+
+ViT dùng sqrt-cap-3 theo phân tích Stage 1, chủ động override kết quả automatic selection ban đầu. Mỗi notebook chạy trên một Colab T4 riêng; có thể mở đồng thời ba session. Cả ba phải dùng cùng commit/dependency/data contract và đúng runtime Stage 1 đã khóa. Nếu runtime hoặc shared contract lệch, notebook dừng trước training.
+
+Artifact được tách theo model để không có ghi đè chéo:
+
+```text
+MyDrive/DATH_CXR/checkpoints/aug_auprc_v1/03_testing/stage2_focalloss/
+├── densenet121/
+├── resnet50/
+└── vit_b_16/
+
+MyDrive/DATH_CXR/run_logs/aug_auprc_v1/03_testing/stage2_focalloss/
+├── stage2_contract.json
+├── densenet121/{runs,analysis,hardware}/
+├── resnet50/{runs,analysis,hardware}/
+└── vit_b_16/{runs,analysis,hardware}/
+```
+
+Để chạy, người dùng tự push source đã review lên branch `update_data`, mở từng notebook trong ba Colab T4 session rồi chọn **Run all**. Khi session bị ngắt, chạy lại cùng notebook: run hoàn tất được skip, run dở resume từ `last.pt`. Không xóa hoặc đổi tên thư mục checkpoint giữa các lần chạy.
+
+Mỗi notebook cập nhật partial analysis sau từng run và tạo export riêng dưới `/content/exports/`. Export chỉ chứa metrics, validation predictions, reports, figures, manifest và hardware telemetry; không chứa checkpoint, dataset, NPZ hoặc ZIP nguồn. Stage 2 không khai báo hay giải nén external-test archive và luôn khóa `RUN_FINAL_TEST=False`.
+
+Focal loss sử dụng weighted BCE theo phần tử, nhân với `(1-p_t)^gamma`, rồi lấy mean trên batch × class. Không dùng alpha vì `pos_weight` đã xử lý mất cân bằng lớp. Checkpoint lưu toàn bộ loss protocol, gồm gamma và positive-weighting; resume/evaluate từ protocol khác bị từ chối.
 
 ## Evaluate
 

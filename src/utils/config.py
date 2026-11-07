@@ -9,7 +9,7 @@ SUPPORTED_MONITORS = {
     "macro_average_precision",
 }
 
-SUPPORTED_LOSSES = {"weighted_bce"}
+SUPPORTED_LOSSES = {"weighted_bce", "sigmoid_focal"}
 SUPPORTED_POSITIVE_WEIGHT_MODES = {
     "raw_ratio",
     "sqrt_ratio",
@@ -107,6 +107,15 @@ def validate_loss_config(training):
             "training.loss.name must be one of "
             f"{sorted(SUPPORTED_LOSSES)}"
         )
+
+    gamma = loss.get("gamma")
+    if loss["name"] == "sigmoid_focal":
+        gamma = _finite_number(gamma, "training.loss.gamma")
+        if not 0.0 < gamma <= 5.0:
+            raise ValueError("training.loss.gamma must be in (0, 5]")
+        loss["gamma"] = gamma
+    elif "gamma" in loss:
+        raise ValueError("training.loss.gamma is not accepted for weighted_bce")
 
     positive_weight = loss.get("positive_weight")
     if not isinstance(positive_weight, dict):

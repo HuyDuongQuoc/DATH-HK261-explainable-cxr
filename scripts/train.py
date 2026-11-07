@@ -89,7 +89,8 @@ def validate_resume_training_protocol(checkpoint, expected_protocol):
         checkpoint_config = checkpoint.get("config", {})
         checkpoint_training = checkpoint_config.get("training", {})
         legacy_expected = (
-            expected_protocol["loss_protocol"]["positive_weight"]["mode"]
+            expected_protocol["loss_protocol"].get("name") == "weighted_bce"
+            and expected_protocol["loss_protocol"]["positive_weight"]["mode"]
             == "raw_ratio"
             and expected_protocol["loss_protocol"]["positive_weight"]["max_value"]
             is None

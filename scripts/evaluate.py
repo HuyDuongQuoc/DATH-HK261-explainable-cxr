@@ -166,10 +166,7 @@ def main():
         assignment_sha256=assignment,
         protocol_id=data_config["protocol_id"],
     )
-    expected_loss_protocol = {
-        "name": config["training"]["loss"]["name"],
-        "positive_weight": config["training"]["loss"]["positive_weight"],
-    }
+    expected_loss_protocol = config["training"]["loss"]
     validate_checkpoint_loss_protocol(checkpoint, expected_loss_protocol)
 
     (
