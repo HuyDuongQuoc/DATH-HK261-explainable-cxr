@@ -20,6 +20,7 @@ from src.data.protocol import (
 )
 from src.losses.classification_loss import (
     build_classification_loss,
+    validate_checkpoint_loss_protocol,
 )
 from src.metrics.classification import (
     THRESHOLD_STRATEGY,
@@ -59,6 +60,61 @@ def resolve_monitor_score(metrics, monitor_name):
 
 def monitor_improved(current_score, best_score, min_delta):
     return float(current_score) > float(best_score) + float(min_delta)
+
+
+def build_training_protocol(
+    training_config,
+    augmentation_protocol,
+    loss_protocol,
+    amp_enabled,
+):
+    return {
+        "batch_size": int(training_config["batch_size"]),
+        "validation_batch_size": int(training_config["validation_batch_size"]),
+        "num_workers": int(training_config["num_workers"]),
+        "persistent_workers": bool(training_config["persistent_workers"]),
+        "prefetch_factor": int(training_config["prefetch_factor"]),
+        "amp_enabled": bool(amp_enabled),
+        "cudnn_benchmark": bool(torch.backends.cudnn.benchmark),
+        "cudnn_deterministic": bool(torch.backends.cudnn.deterministic),
+        "augmentation_protocol": augmentation_protocol,
+        "loss_protocol": loss_protocol,
+        "monitor": training_config["monitor"],
+    }
+
+
+def validate_resume_training_protocol(checkpoint, expected_protocol):
+    checkpoint_protocol = checkpoint.get("training_protocol")
+    if checkpoint_protocol is None:
+        checkpoint_config = checkpoint.get("config", {})
+        checkpoint_training = checkpoint_config.get("training", {})
+        legacy_expected = (
+            expected_protocol["loss_protocol"]["positive_weight"]["mode"]
+            == "raw_ratio"
+            and expected_protocol["loss_protocol"]["positive_weight"]["max_value"]
+            is None
+        )
+        if not legacy_expected:
+            raise ValueError("Legacy checkpoint cannot resume with non-raw loss protocol")
+        if checkpoint_training:
+            comparable = {
+                "batch_size": int(checkpoint_training.get("batch_size", 8)),
+                "num_workers": int(checkpoint_training.get("num_workers", 2)),
+            }
+            for key, value in comparable.items():
+                if expected_protocol[key] != value:
+                    raise ValueError("Checkpoint training protocol mismatch")
+        return
+    if checkpoint_protocol != expected_protocol:
+        raise ValueError("Checkpoint training protocol mismatch")
+
+
+def build_validation_predictions_table(result, findings):
+    table = {"image_id": list(result["image_ids"])}
+    for index, finding in enumerate(findings):
+        table[f"target::{finding}"] = result["targets"][:, index].astype("uint8")
+        table[f"probability::{finding}"] = result["probabilities"][:, index]
+    return pd.DataFrame(table)
 
 
 def resolve_resume_best_score(
@@ -173,9 +229,14 @@ def main():
         config["data"]["val_manifest_path"]
     )
 
-    loader_kwargs = build_loader_kwargs(
+    train_loader_kwargs = build_loader_kwargs(
         training_config,
         pin_memory=torch.cuda.is_available(),
+    )
+    val_loader_kwargs = build_loader_kwargs(
+        training_config,
+        pin_memory=torch.cuda.is_available(),
+        batch_size=training_config["validation_batch_size"],
     )
 
     train_generator = (
@@ -187,13 +248,13 @@ def main():
         train_dataset,
         shuffle=True,
         generator=train_generator,
-        **loader_kwargs,
+        **train_loader_kwargs,
     )
 
     val_loader = DataLoader(
         val_dataset,
         shuffle=False,
-        **loader_kwargs,
+        **val_loader_kwargs,
     )
 
     device = torch.device(
@@ -218,11 +279,18 @@ def main():
         train_dataset.table[findings].to_numpy(dtype=float)
     )
 
-    criterion, pos_weight = (
+    criterion, pos_weight, loss_protocol, loss_metadata = (
         build_classification_loss(
             train_labels=train_labels,
             device=device,
+            loss_config=training_config["loss"],
         )
+    )
+    training_protocol = build_training_protocol(
+        training_config=training_config,
+        augmentation_protocol=augmentation_protocol,
+        loss_protocol=loss_protocol,
+        amp_enabled=amp_enabled,
     )
 
     optimizer = torch.optim.AdamW(
@@ -272,6 +340,8 @@ def main():
         )
         if checkpoint.get("amp_enabled") != amp_enabled:
             raise ValueError("Checkpoint AMP protocol mismatch")
+        validate_checkpoint_loss_protocol(checkpoint, loss_protocol)
+        validate_resume_training_protocol(checkpoint, training_protocol)
         if checkpoint.get("threshold_strategy") != THRESHOLD_STRATEGY:
             raise ValueError("Checkpoint threshold strategy mismatch")
         if "decision_thresholds" not in checkpoint:
@@ -304,6 +374,15 @@ def main():
         ),
         encoding="utf-8",
     )
+    serializable_loss_metadata = {
+        "findings": findings,
+        "loss_protocol": loss_protocol,
+        **loss_metadata,
+    }
+    (result_dir / "loss_metadata.json").write_text(
+        json.dumps(serializable_loss_metadata, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
 
     for epoch in range(
         start_epoch,
@@ -321,6 +400,7 @@ def main():
             scaler=scaler,
             use_amp=amp_enabled,
             show_progress=training_config["show_progress"],
+            collect_predictions=False,
             description=(
                 f"Epoch {epoch + 1:02d}/{training_config['epochs']:02d} — train"
             ),
@@ -335,6 +415,7 @@ def main():
             scaler=None,
             use_amp=amp_enabled,
             show_progress=training_config["show_progress"],
+            collect_predictions=True,
             description=(
                 f"Epoch {epoch + 1:02d}/{training_config['epochs']:02d} — val"
             ),
@@ -390,6 +471,14 @@ def main():
                 train_result["peak_gpu_memory_gb"],
                 val_result["peak_gpu_memory_gb"],
             ),
+            "peak_gpu_memory_allocated_gb": max(
+                train_result["peak_gpu_memory_allocated_gb"],
+                val_result["peak_gpu_memory_allocated_gb"],
+            ),
+            "peak_gpu_memory_reserved_gb": max(
+                train_result["peak_gpu_memory_reserved_gb"],
+                val_result["peak_gpu_memory_reserved_gb"],
+            ),
         }
 
         history.append(epoch_record)
@@ -406,9 +495,14 @@ def main():
             "split_assignment_sha256": split_assignment_sha256,
             "data_protocol_id": config["data"]["protocol_id"],
             "augmentation_protocol": augmentation_protocol,
+            "loss_protocol": loss_protocol,
+            "training_protocol": training_protocol,
             "amp_enabled": amp_enabled,
             "amp_scaler_state_dict": scaler.state_dict(),
             "pos_weight": pos_weight.detach().cpu(),
+            "raw_pos_weight": torch.tensor(loss_metadata["raw_pos_weight"]),
+            "positive_count": torch.tensor(loss_metadata["positive_count"]),
+            "negative_count": torch.tensor(loss_metadata["negative_count"]),
             "decision_thresholds": decision_thresholds,
             "threshold_strategy": THRESHOLD_STRATEGY,
             "threshold_validation_manifest_sha256": validation_manifest_sha256,
@@ -429,6 +523,8 @@ def main():
                 "threshold_strategy": THRESHOLD_STRATEGY,
                 "threshold_validation_manifest_sha256": validation_manifest_sha256,
                 "amp_enabled": amp_enabled,
+                "loss_protocol": loss_protocol,
+                "training_protocol": training_protocol,
                 "split_assignment_sha256": split_assignment_sha256,
                 "data_protocol_id": config["data"]["protocol_id"],
                 "val_seconds": val_result["elapsed_seconds"],
@@ -442,6 +538,13 @@ def main():
                     indent=2,
                 ),
                 encoding="utf-8",
+            )
+            build_validation_predictions_table(
+                val_result,
+                findings,
+            ).to_csv(
+                result_dir / "best_val_predictions.csv",
+                index=False,
             )
             save_checkpoint(
                 checkpoint,

@@ -9,6 +9,13 @@ SUPPORTED_MONITORS = {
     "macro_average_precision",
 }
 
+SUPPORTED_LOSSES = {"weighted_bce"}
+SUPPORTED_POSITIVE_WEIGHT_MODES = {
+    "raw_ratio",
+    "sqrt_ratio",
+    "sqrt_ratio_capped",
+}
+
 
 def merge_dict(base: dict, override: dict) -> dict:
     result = deepcopy(base)
@@ -82,6 +89,61 @@ def validate_augmentation_config(preprocessing):
             raise ValueError(f"{name} must be in [0, 1]")
 
 
+def validate_loss_config(training):
+    loss = training.get("loss")
+    if loss is None:
+        loss = {
+            "name": "weighted_bce",
+            "positive_weight": {
+                "mode": "raw_ratio",
+                "max_value": None,
+            },
+        }
+        training["loss"] = loss
+    if not isinstance(loss, dict):
+        raise ValueError("training.loss must be a mapping")
+    if loss.get("name") not in SUPPORTED_LOSSES:
+        raise ValueError(
+            "training.loss.name must be one of "
+            f"{sorted(SUPPORTED_LOSSES)}"
+        )
+
+    positive_weight = loss.get("positive_weight")
+    if not isinstance(positive_weight, dict):
+        raise ValueError("training.loss.positive_weight must be a mapping")
+    mode = positive_weight.get("mode")
+    if mode not in SUPPORTED_POSITIVE_WEIGHT_MODES:
+        raise ValueError(
+            "training.loss.positive_weight.mode must be one of "
+            f"{sorted(SUPPORTED_POSITIVE_WEIGHT_MODES)}"
+        )
+    maximum = positive_weight.get("max_value")
+    if mode == "sqrt_ratio_capped":
+        maximum = _finite_number(
+            maximum,
+            "training.loss.positive_weight.max_value",
+        )
+        if maximum <= 0.0:
+            raise ValueError("positive weight max_value must be positive")
+        positive_weight["max_value"] = maximum
+    elif maximum is not None:
+        raise ValueError(
+            "positive weight max_value must be null unless mode is "
+            "sqrt_ratio_capped"
+        )
+
+
+def validate_training_config(training):
+    for field in ("batch_size", "validation_batch_size", "num_workers"):
+        value = training.get(field)
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(f"training.{field} must be an integer")
+        minimum = 0 if field == "num_workers" else 1
+        if value < minimum:
+            raise ValueError(f"training.{field} must be >= {minimum}")
+    validate_loss_config(training)
+
+
 def load_config(config_path):
     config_path = Path(config_path)
     default_path = config_path.parent / "default.yaml"
@@ -128,7 +190,11 @@ def load_config(config_path):
 
     validate_augmentation_config(config["preprocessing"])
 
-    monitor = config["training"].get("monitor")
+    training = config["training"]
+    training.setdefault("validation_batch_size", training["batch_size"])
+    validate_training_config(training)
+
+    monitor = training.get("monitor")
     if monitor not in SUPPORTED_MONITORS:
         raise ValueError(
             "training.monitor must be one of "

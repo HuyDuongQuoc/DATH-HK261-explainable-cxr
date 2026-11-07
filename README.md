@@ -171,6 +171,27 @@ Augmentation gồm affine nhỏ (±7°, translation 3%, scale 0.95–1.05) và b
 
 Notebook `notebooks/02_experiment.ipynb` lưu run mới dưới `checkpoints/aug_auprc_v1` và `run_logs/aug_auprc_v1` trên Drive. Vì augmentation chạy lúc load ảnh, hai archive `consensus_v1_224.zip` và `consensus_test_v1_224.zip` không đổi và không cần upload lại nếu đã tồn tại và vượt qua bước kiểm tra checksum.
 
+## Stage 1: positive weighting với notebook 03
+
+Notebook `notebooks/03_testing.ipynb` chạy ma trận 12 validation experiments gồm ba architecture và bốn positive-weighting: raw ratio, square-root ratio, square-root ratio cap 5 và cap 3. Tất cả run giữ seed 42, augmentation hiện hành, train batch 8 và chọn checkpoint bằng validation macro-AUPRC.
+
+Artifact trên Drive được tách khỏi notebook 02:
+
+```text
+MyDrive/DATH_CXR/checkpoints/aug_auprc_v1/03_testing/stage1_pos_weight_v1/
+MyDrive/DATH_CXR/run_logs/aug_auprc_v1/03_testing/stage1_pos_weight_v1/
+```
+
+Notebook tự resume `last.pt`, skip run hoàn tất, cập nhật bảng so sánh/figures sau từng run và tạo export:
+
+```text
+/content/exports/03_testing_stage1_pos_weight_v1_results.zip
+```
+
+`RUN_FINAL_TEST=False` là mặc định và Stage 1 không giải nén hoặc đánh giá external test. Có thể chia nhiều phiên Colab bằng `ACTIVE_MODELS`, `ACTIVE_WEIGHTINGS` và `MAX_NEW_RUNS_PER_SESSION`; registry 12 run và tiêu chí lựa chọn không thay đổi.
+
+Mỗi run lưu thêm `loss_metadata.json` và `best_val_predictions.csv`. Báo cáo tổng hợp nằm trong `analysis/`, gồm macro/per-class metrics, delta so với raw control, ranking, selection JSON, Markdown report và figures. Dataset archive không thay đổi và không cần upload lại.
+
 ## Evaluate
 
 Evaluate validation:

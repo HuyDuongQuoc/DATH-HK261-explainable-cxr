@@ -82,6 +82,7 @@ model:
 
 training:
   batch_size: 8
+  validation_batch_size: 8
   num_workers: 2
   persistent_workers: true
   prefetch_factor: 2
@@ -95,3 +96,9 @@ training:
   monitor: macro_auroc
   patience: 5
   min_delta: 0.0001
+
+  loss:
+    name: weighted_bce
+    positive_weight:
+      mode: raw_ratio
+      max_value: null

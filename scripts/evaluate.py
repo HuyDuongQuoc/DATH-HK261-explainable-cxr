@@ -18,6 +18,10 @@ from src.data.protocol import (
     load_split_metadata,
     validate_checkpoint_protocol,
 )
+from src.losses.classification_loss import (
+    build_loss_from_checkpoint,
+    validate_checkpoint_loss_protocol,
+)
 from src.metrics.classification import (
     THRESHOLD_STRATEGY,
     compute_classification_metrics,
@@ -132,6 +136,7 @@ def main():
     loader_kwargs = build_loader_kwargs(
         config["training"],
         pin_memory=torch.cuda.is_available(),
+        batch_size=config["training"]["validation_batch_size"],
     )
     loader = DataLoader(
         dataset,
@@ -161,8 +166,11 @@ def main():
         assignment_sha256=assignment,
         protocol_id=data_config["protocol_id"],
     )
-    if "pos_weight" not in checkpoint:
-        raise ValueError("Checkpoint is missing pos_weight")
+    expected_loss_protocol = {
+        "name": config["training"]["loss"]["name"],
+        "positive_weight": config["training"]["loss"]["positive_weight"],
+    }
+    validate_checkpoint_loss_protocol(checkpoint, expected_loss_protocol)
 
     (
         decision_thresholds,
@@ -175,9 +183,7 @@ def main():
         validation_manifest_path=data_config["val_manifest_path"],
     )
 
-    criterion = torch.nn.BCEWithLogitsLoss(
-        pos_weight=checkpoint["pos_weight"].to(device)
-    )
+    criterion, _ = build_loss_from_checkpoint(checkpoint, device)
     result = run_epoch(
         model=model,
         loader=loader,
@@ -188,6 +194,7 @@ def main():
         use_amp=amp_enabled,
         show_progress=config["training"]["show_progress"],
         description=f"Evaluate {args.split}",
+        collect_predictions=True,
     )
     metrics = compute_classification_metrics(
         targets=result["targets"],
@@ -206,6 +213,12 @@ def main():
             "elapsed_seconds": result["elapsed_seconds"],
             "images_per_second": result["images_per_second"],
             "peak_gpu_memory_gb": result["peak_gpu_memory_gb"],
+            "peak_gpu_memory_allocated_gb": result[
+                "peak_gpu_memory_allocated_gb"
+            ],
+            "peak_gpu_memory_reserved_gb": result[
+                "peak_gpu_memory_reserved_gb"
+            ],
         }
     )
     predictions = build_predictions_table(

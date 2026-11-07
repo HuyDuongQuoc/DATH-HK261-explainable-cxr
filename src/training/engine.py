@@ -14,6 +14,7 @@ def run_epoch(
     use_amp=False,
     show_progress=False,
     description=None,
+    collect_predictions=True,
 ):
     training = optimizer is not None
     amp_enabled = bool(use_amp and device.type == "cuda")
@@ -40,6 +41,8 @@ def run_epoch(
         unit="batch",
         leave=True,
     )
+
+    loss_total_tensor = torch.zeros((), dtype=torch.float64, device=device)
 
     with torch.set_grad_enabled(training):
         for batch in progress:
@@ -88,32 +91,35 @@ def run_epoch(
 
             batch_size = len(images)
 
-            total_loss += loss.item() * batch_size
+            loss_total_tensor += loss.detach().to(torch.float64) * batch_size
 
             image_count += batch_size
 
-            targets.append(
-                labels.detach()
-                .cpu()
-                .numpy()
-            )
+            if collect_predictions:
+                targets.append(
+                    labels.detach()
+                    .cpu()
+                    .numpy()
+                )
 
-            probabilities.append(
-                logits.detach()
-                .sigmoid()
-                .cpu()
-                .numpy()
-            )
+                probabilities.append(
+                    logits.detach()
+                    .sigmoid()
+                    .cpu()
+                    .numpy()
+                )
 
-            image_ids.extend(
-                batch["image_id"]
-            )
+                image_ids.extend(
+                    batch["image_id"]
+                )
 
             elapsed = max(time.perf_counter() - started_at, 1e-9)
             postfix = {
-                "loss": f"{total_loss / image_count:.4f}",
                 "img/s": f"{image_count / elapsed:.1f}",
             }
+            if show_progress:
+                total_loss = float(loss_total_tensor.item())
+                postfix["loss"] = f"{total_loss / image_count:.4f}"
             if device.type == "cuda":
                 postfix["gpu_GB"] = f"{torch.cuda.max_memory_allocated(device) / (1024 ** 3):.2f}"
             progress.set_postfix(postfix, refresh=False)
@@ -122,24 +128,30 @@ def run_epoch(
         raise ValueError("Empty DataLoader")
 
     elapsed_seconds = time.perf_counter() - started_at
-    peak_gpu_memory_gb = (
+    total_loss = float(loss_total_tensor.item())
+    peak_gpu_memory_allocated_gb = (
         torch.cuda.max_memory_allocated(device) / (1024 ** 3)
         if device.type == "cuda"
         else 0.0
     )
+    peak_gpu_memory_reserved_gb = (
+        torch.cuda.max_memory_reserved(device) / (1024 ** 3)
+        if device.type == "cuda"
+        else 0.0
+    )
 
-    return {
+    result = {
         "loss": total_loss / image_count,
-        "targets": np.concatenate(
-            targets,
-            axis=0,
-        ),
-        "probabilities": np.concatenate(
-            probabilities,
-            axis=0,
-        ),
-        "image_ids": image_ids,
         "elapsed_seconds": elapsed_seconds,
         "images_per_second": image_count / elapsed_seconds,
-        "peak_gpu_memory_gb": peak_gpu_memory_gb,
+        "peak_gpu_memory_gb": peak_gpu_memory_allocated_gb,
+        "peak_gpu_memory_allocated_gb": peak_gpu_memory_allocated_gb,
+        "peak_gpu_memory_reserved_gb": peak_gpu_memory_reserved_gb,
     }
+    if collect_predictions:
+        result.update({
+            "targets": np.concatenate(targets, axis=0),
+            "probabilities": np.concatenate(probabilities, axis=0),
+            "image_ids": image_ids,
+        })
+    return result
