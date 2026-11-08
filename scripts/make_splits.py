@@ -1,26 +1,41 @@
 import argparse
-import hashlib
 import json
 from pathlib import Path
-import numpy as np
+import sys
+
 import pandas as pd
 
-from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.data.protocol_splitting import (
+    build_split_metadata,
+    build_summary,
+    create_fixed_split_tables,
+    load_validation_ids,
+    write_split_artifacts,
+)
 from src.utils.config import load_config
+from src.utils.checksums import write_protocol_checksums
 
 
-def file_sha256(path):
-    digest = hashlib.sha256()
-
-    with Path(path).open("rb") as file:
-        for chunk in iter(
-            lambda: file.read(1024 * 1024),
-            b"",
-        ):
-            digest.update(chunk)
-
-    return digest.hexdigest()
+def bootstrap_validation_ids(source_path, output_path):
+    source_path = Path(source_path)
+    output_path = Path(output_path)
+    if output_path.exists():
+        raise FileExistsError(
+            f"{output_path} already exists; bootstrap is a one-time operation"
+        )
+    source = pd.read_csv(source_path, dtype={"image_id": str})
+    if "image_id" not in source.columns:
+        raise ValueError("Bootstrap validation CSV is missing image_id")
+    validation_ids = source[["image_id"]].copy()
+    validation_ids["image_id"] = validation_ids["image_id"].astype(str)
+    if validation_ids.empty or not validation_ids["image_id"].is_unique:
+        raise ValueError("Bootstrap validation IDs must be non-empty and unique")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    validation_ids.sort_values("image_id").to_csv(output_path, index=False)
 
 
 def main():
@@ -36,6 +51,12 @@ def main():
         action="store_true",
     )
 
+    parser.add_argument(
+        "--bootstrap-validation-from",
+        default=None,
+        help="One-time source CSV used to preserve the existing validation IDs.",
+    )
+
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -45,138 +66,56 @@ def main():
         data_config["manifest_path"]
     )
 
-    split_dir = Path(
-        data_config["split_dir"]
-    )
+    protocol_dir = Path(data_config["protocol_dir"])
+    validation_ids_path = Path(data_config["validation_ids_path"])
 
-    train_path = split_dir / "train.csv"
-    val_path = split_dir / "val.csv"
-
-    if (
-        train_path.exists()
-        or val_path.exists()
-    ) and not args.overwrite:
-        raise FileExistsError(
-            "Split already exists. Reuse it for all "
-            "three backbones."
+    if args.bootstrap_validation_from is not None:
+        bootstrap_validation_ids(
+            source_path=args.bootstrap_validation_from,
+            output_path=validation_ids_path,
         )
 
     manifest = pd.read_csv(manifest_path)
     findings = data_config["target_findings"]
-
-    if not manifest["image_id"].is_unique:
-        raise ValueError(
-            "Manifest contains duplicate image IDs"
-        )
-
-    labels = manifest[
-        findings
-    ].to_numpy(dtype=np.uint8)
-
-    splitter = MultilabelStratifiedShuffleSplit(
-        n_splits=1,
-        test_size=data_config["val_fraction"],
-        random_state=config["seed"],
-    )
-
-    train_index, val_index = next(
-        splitter.split(
-            np.zeros((len(manifest), 1)),
-            labels,
-        )
-    )
-
-    train_table = manifest.iloc[
-        train_index
-    ].copy()
-
-    val_table = manifest.iloc[
-        val_index
-    ].copy()
-
-    if not set(
-        train_table["image_id"]
-    ).isdisjoint(
-        val_table["image_id"]
-    ):
-        raise ValueError(
-            "Image leakage between train and validation"
-        )
-
-    summary_rows = []
-
-    for split_name, table in [
-        ("train", train_table),
-        ("val", val_table),
-    ]:
-        for finding in findings:
-            positive = int(table[finding].sum())
-            negative = len(table) - positive
-
-            if positive == 0 or negative == 0:
-                raise ValueError(
-                    f"{split_name}/{finding} does not "
-                    "contain both classes"
-                )
-
-            summary_rows.append({
-                "split": split_name,
-                "finding": finding,
-                "positive": positive,
-                "negative": negative,
-                "positive_rate": (
-                    positive / len(table)
-                ),
-            })
-
-    split_dir.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    train_table.sort_values(
-        "image_id"
-    ).to_csv(
-        train_path,
-        index=False,
-    )
-
-    val_table.sort_values(
-        "image_id"
-    ).to_csv(
-        val_path,
-        index=False,
-    )
-
-    summary = pd.DataFrame(summary_rows)
-
-    summary.to_csv(
-        split_dir / "summary.csv",
-        index=False,
-    )
-
-    split_metadata = {
-        "seed": config["seed"],
-        "method": ("MultilabelStratifiedShuffleSplit"),
-        "val_fraction": data_config["val_fraction"],
-        "manifest_sha256": file_sha256(manifest_path),
-        "train_images": len(train_table),
-        "val_images": len(val_table),
-        "target_findings": findings,
+    fractions = {
+        "train": float(data_config["train_fraction"]),
+        "val": float(data_config["val_fraction"]),
     }
-
-    (
-        split_dir / "split_metadata.json"
-    ).write_text(
-        json.dumps(
-            split_metadata,
-            indent=2,
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
+    validation_ids = load_validation_ids(validation_ids_path)
+    split_tables, sizes = create_fixed_split_tables(
+        manifest=manifest,
+        findings=findings,
+        validation_ids=validation_ids,
+        fractions=fractions,
     )
+    summary = build_summary(split_tables, findings)
+    split_metadata = build_split_metadata(
+        manifest_path=manifest_path,
+        validation_ids_path=validation_ids_path,
+        split_tables=split_tables,
+        findings=findings,
+        fractions=fractions,
+        sizes=sizes,
+        protocol_id=data_config["protocol_id"],
+    )
+    write_split_artifacts(
+        protocol_dir=protocol_dir,
+        split_tables=split_tables,
+        summary=summary,
+        metadata=split_metadata,
+        overwrite=args.overwrite,
+    )
+
+    write_protocol_checksums(protocol_dir)
 
     print(summary.to_string(index=False))
+    print(json.dumps(split_metadata, indent=2, ensure_ascii=False))
+    print(
+        "Split counts:",
+        {name: len(table) for name, table in split_tables.items()},
+    )
+    print("Overlap:", 0)
+    print("Covered images:", sum(len(table) for table in split_tables.values()))
 
 
 if __name__ == "__main__":

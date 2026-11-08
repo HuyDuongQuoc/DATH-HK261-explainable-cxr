@@ -1,0 +1,51 @@
+# Core
+numpy
+pandas
+scipy
+seaborn
+
+# Machine Learning
+scikit-learn
+
+# Deep Learning helpers (PyTorch is supplied separately)
+torchmetrics
+timm
+
+# Medical Imaging
+pydicom
+
+# Image Processing
+opencv-python
+Pillow
+albumentations
+
+# Explainable AI
+grad-cam
+
+# Visualization
+matplotlib
+
+# Configuration
+PyYAML
+python-dotenv
+
+# Utilities
+tqdm
+
+# Experiment monitoring
+tensorboard
+
+# Notebook
+jupyterlab
+ipykernel
+
+# Testing
+pytest
+
+# Prototype
+streamlit
+
+# Kaggle
+kaggle
+
+iterative-stratification==0.1.9

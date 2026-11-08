@@ -269,6 +269,7 @@ def build_manifest(
     findings,
     expected_readers=3,
     positive_votes=2,
+    image_subdir="train",
 ):
     image_dir = Path(image_dir)
 
@@ -293,7 +294,7 @@ def build_manifest(
 
         row = {
             "image_id": image_id,
-            "raw_image_path": f"train/{image_id}.jpg",
+            "raw_image_path": f"{image_subdir}/{image_id}.jpg",
             "raw_width": width,
             "raw_height": height,
         }

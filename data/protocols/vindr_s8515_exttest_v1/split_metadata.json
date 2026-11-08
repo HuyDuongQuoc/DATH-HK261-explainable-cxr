@@ -1,0 +1,45 @@
+{
+  "protocol_id": "vindr_s8515_exttest_v1",
+  "method": "fixed_validation_ids_complement",
+  "fractions": {
+    "train": 0.85,
+    "val": 0.15
+  },
+  "expected_images": {
+    "train": 12750,
+    "val": 2250
+  },
+  "actual_images": {
+    "train": 12750,
+    "val": 2250
+  },
+  "all_zero": {
+    "train": {
+      "count": 9033,
+      "rate": 0.7084705882352941
+    },
+    "val": {
+      "count": 1615,
+      "rate": 0.7177777777777777
+    }
+  },
+  "manifest_sha256": "a0061832aedc20581c18f96670df33d5355ecd3e64c83685198c65f56dd084a2",
+  "validation_ids_sha256": "4cb9b0dab021914cea37808e5257e5f5f9b0ec102c8a4e333297abd44c03524e",
+  "assignment_sha256": "bc9d6032e28bf3dda1992bf3c37617d05dce620da77cf6529face77835f94702",
+  "target_findings": [
+    "Aortic enlargement",
+    "Atelectasis",
+    "Calcification",
+    "Cardiomegaly",
+    "Consolidation",
+    "ILD",
+    "Infiltration",
+    "Lung Opacity",
+    "Nodule/Mass",
+    "Other lesion",
+    "Pleural effusion",
+    "Pleural thickening",
+    "Pneumothorax",
+    "Pulmonary fibrosis"
+  ]
+}

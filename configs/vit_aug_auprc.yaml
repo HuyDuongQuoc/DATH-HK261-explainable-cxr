@@ -1,0 +1,8 @@
+preprocessing:
+  use_augmentation: true
+
+model:
+  name: vit_b_16
+
+training:
+  monitor: macro_average_precision
