@@ -1,3 +1,5 @@
+import math
+
 import cv2
 import numpy as np
 import torch
@@ -5,83 +7,54 @@ import torch.nn.functional as F
 from PIL import Image
 
 
+SUPPORTED_MODELS = ("resnet50", "densenet121", "vit_b_16")
+
+
 class GradCAM:
-    def __init__(
-            self, 
-            model, 
-            model_name: str
-        ):
+    """
+    Grad-CAM cho ResNet50, DenseNet121 và ViT-B/16.
+
+    - CNN: tự forward tới feature map cuối rồi gắn hook gradient lên chính tensor
+      đó. Không dùng module backward hook nên không vướng ReLU inplace của DenseNet.
+    - ViT: hook vào ln_1 của block cuối. Head chỉ đọc CLS token, nên gradient tại
+      output encoder (hay output block cuối) của patch token luôn bằng 0; tại ln_1
+      patch token vẫn ảnh hưởng CLS qua attention nên gradient khác 0.
+
+    generate() trả về (cam, class_idx):
+        cam:       np.ndarray [B, h, w] trong [0, 1], h x w là grid gốc (7x7 / 14x14)
+        class_idx: list[int] độ dài B
+    """
+
+    def __init__(self, model, model_name: str):
+        if model_name not in SUPPORTED_MODELS:
+            raise ValueError(
+                f"[GradCAM ERROR] unsupported model: {model_name}"
+            )
 
         self.model = model
         self.model_name = model_name
-        self.gradients = None
         self.activations = None
+        self.gradients = None
         self.hook_handles = []
 
-        self.model.eval()
+        if model_name == "vit_b_16":
+            target = self.model.encoder.layers[-1].ln_1
+            self.hook_handles.append(
+                target.register_forward_hook(self._save_vit_activation)
+            )
 
-        self.target_layer = self._get_target_layer()
+    # ---------- hooks ----------
+    def _save_vit_activation(self, module, inputs, output):
+        self.activations = output
+        output.register_hook(self._save_gradient)
 
-        self.target_layer.register_forward_hook(self._save_activation)
-        self.target_layer.register_full_backward_hook(self._save_gradient)
-
-
-    def generate(
-            self, 
-            input_tensor: torch.Tensor, 
-            class_idx: int = None
-        ):
-    
-            logits = self.model(input_tensor)
-    
-            if class_idx is None:
-                class_idx = torch.argmax(logits, dim=1).item()
-    
-            self.model.zero_grad()
-            score = logits[0, class_idx]
-            score.backward(retain_graph=True)
-    
-            if self.model_name in ["resnet50", "densenet121"]:
-                cam = self._process_cnn()
-            
-            elif self.model_name == "vit_b_16":
-                cam = self._process_vit(
-                    input_tensor.shape[2], 
-                    input_tensor.shape[3]
-                )
-    
-            return cam, class_idx
-
-
-    def _get_target_layer(self):
-        if self.model_name == "resnet50":
-            return self.model.layer4[-1] 
-
-        elif self.model_name == "densenet121":
-            return self.model.features.norm5
-
-        elif self.model_name == "vit_b_16":
-            return self.model.encoder.ln
-
-        else:
-            raise ValueError(f"[GradCAM ERROR] target layer not valid for {self.model_name}")
-
-
-    def _register_hooks(self):
-        def forward_hook(module, input, output):
-            self.activations = output.detach().clone()
-            if output.requires_grad:
-                output.register_hook(self._save_gradient)
-
-        handle = self.target_layer.register_forward_hook(forward_hook)
-        self.hook_handles.append(handle)
-
+    def _save_gradient(self, grad):
+        self.gradients = grad
 
     def remove(self):
         for handle in self.hook_handles:
             handle.remove()
         self.hook_handles.clear()
-
 
     def __enter__(self):
         return self
@@ -89,44 +62,101 @@ class GradCAM:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.remove()
 
+    # ---------- forward ----------
+    def _forward(self, x):
+        m = self.model
 
-    def _save_activation(self, module, input, output):
-        self.activations = output.detach()
+        if self.model_name == "resnet50":
+            x = m.maxpool(m.relu(m.bn1(m.conv1(x))))
+            x = m.layer4(m.layer3(m.layer2(m.layer1(x))))
+            features = x
+            head = m.fc
 
+        elif self.model_name == "densenet121":
+            features = F.relu(m.features(x))  # không inplace
+            head = m.classifier
 
-    def _save_gradient(self, module, grad_input, grad_output):
-        self.gradients = grad_output[0].detach()
+        else:
+            return m(x)
 
+        features.register_hook(self._save_gradient)
+        self.activations = features
 
+        return head(torch.flatten(F.adaptive_avg_pool2d(features, 1), 1))
+
+    def generate(self, input_tensor: torch.Tensor, class_idx=None):
+        """class_idx: None (argmax), int, hoặc list/tensor độ dài B."""
+        was_training = self.model.training
+        self.model.eval()
+        self.activations = None
+        self.gradients = None
+
+        try:
+            with torch.enable_grad():
+                # requires_grad để graph luôn tồn tại kể cả khi model bị freeze
+                x = input_tensor.detach().clone().requires_grad_(True)
+                logits = self._forward(x)
+
+                batch = logits.shape[0]
+                if class_idx is None:
+                    idx = logits.argmax(dim=1)
+                elif isinstance(class_idx, int):
+                    idx = torch.full((batch,), class_idx, dtype=torch.long)
+                else:
+                    idx = torch.as_tensor(class_idx, dtype=torch.long)
+                if idx.shape != (batch,):
+                    raise ValueError("class_idx must be an int or length-B sequence")
+                idx = idx.to(logits.device)
+
+                self.model.zero_grad(set_to_none=True)
+                score = logits.gather(1, idx[:, None]).sum()
+                score.backward()
+
+            if self.gradients is None:
+                raise RuntimeError("[GradCAM ERROR] no gradient captured")
+
+            if self.model_name == "vit_b_16":
+                cam = self._process_vit()
+            else:
+                cam = self._process_cnn()
+        finally:
+            self.model.train(was_training)
+
+        return cam, idx.tolist()
+
+    # ---------- cam ----------
     def _process_cnn(self):
-        weights = torch.mean(self.gradients, dim=(2, 3), keepdim=True)
-        cam = torch.sum(weights * self.activations, dim=1, keepdim=True)
-        cam = F.relu(cam)
+        grads = self.gradients.detach()
+        acts = self.activations.detach()
 
-        return self._normalize(cam.squeeze().cpu().numpy())
-
-
-    def _process_vit(self, img_h: int, img_w: int):
-        grads = self.gradients[:, 1:, :]  # (1, num_patches, D)
-        acts = self.activations[:, 1:, :]  # (1, num_patches, D)
-
-        weights = torch.mean(grads, dim=1, keepdim=True)  # (1, 1, D)
-        cam = torch.sum(weights * acts, dim=-1)  # (1, num_patches)
-        cam = F.relu(cam)
-
-        grid_h = img_h // 16
-        grid_w = img_w // 16
-        cam = cam.reshape(grid_h, grid_w)
+        weights = grads.mean(dim=(2, 3), keepdim=True)
+        cam = F.relu((weights * acts).sum(dim=1))  # [B, h, w]
 
         return self._normalize(cam.cpu().numpy())
 
+    def _process_vit(self):
+        grads = self.gradients.detach()[:, 1:, :]  # bỏ CLS
+        acts = self.activations.detach()[:, 1:, :]
+
+        weights = grads.mean(dim=1, keepdim=True)
+        cam = F.relu((weights * acts).sum(dim=-1))  # [B, N]
+
+        side = math.isqrt(cam.shape[1])
+        if side * side != cam.shape[1]:
+            raise ValueError(f"Patch count {cam.shape[1]} is not a square grid")
+
+        return self._normalize(cam.reshape(-1, side, side).cpu().numpy())
 
     @staticmethod
     def _normalize(cam: np.ndarray) -> np.ndarray:
-        cam_min, cam_max = np.min(cam), np.max(cam)
-        if cam_max > cam_min:
-            return (cam - cam_min) / (cam_max - cam_min)
-        return np.zeros_like(cam)
+        """Min-max theo từng ảnh; ảnh phẳng -> toàn 0."""
+        flat = cam.reshape(cam.shape[0], -1)
+        lo = flat.min(axis=1)[:, None, None]
+        hi = flat.max(axis=1)[:, None, None]
+        out = np.zeros_like(cam)
+        ok = (hi > lo).reshape(-1)
+        out[ok] = (cam[ok] - lo[ok]) / (hi[ok] - lo[ok])
+        return out
 
 
 # display
