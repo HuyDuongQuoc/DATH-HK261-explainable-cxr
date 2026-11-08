@@ -1,10 +1,15 @@
 import argparse
 import json
 from pathlib import Path
+import sys
 
 import numpy as np
 import pandas as pd
 import torch
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 from torch.utils.data import DataLoader
 
 from src.data.dataset import CXRDataset
@@ -13,11 +18,20 @@ from src.data.protocol import (
     load_split_metadata,
     validate_checkpoint_protocol,
 )
-from src.data.splitting import file_sha256
-from src.metrics.classification import compute_classification_metrics
+from src.losses.classification_loss import (
+    build_loss_from_checkpoint,
+    validate_checkpoint_loss_protocol,
+)
+from src.metrics.classification import (
+    THRESHOLD_STRATEGY,
+    compute_classification_metrics,
+    resolve_decision_thresholds,
+    threshold_mapping,
+)
 from src.models.factory import build_model
 from src.training.engine import run_epoch
 from src.utils.checkpoint import load_checkpoint
+from src.utils.checksums import file_sha256
 from src.utils.config import load_config
 from src.utils.seed import set_seed
 
@@ -25,7 +39,10 @@ from src.utils.seed import set_seed
 def build_predictions_table(image_ids, targets, probabilities, findings, threshold):
     targets = np.asarray(targets)
     probabilities = np.asarray(probabilities)
-    predictions = (probabilities >= threshold).astype(np.uint8)
+    thresholds = resolve_decision_thresholds(threshold, findings)
+    predictions = (
+        probabilities >= thresholds.reshape(1, -1)
+    ).astype(np.uint8)
     table = {"image_id": list(image_ids)}
 
     for index, finding in enumerate(findings):
@@ -36,29 +53,79 @@ def build_predictions_table(image_ids, targets, probabilities, findings, thresho
     return pd.DataFrame(table)
 
 
+def select_decision_thresholds(
+    checkpoint,
+    findings,
+    threshold_override,
+    validation_manifest_path,
+):
+    if threshold_override is not None:
+        return (
+            threshold_mapping(threshold_override, findings),
+            "cli_override",
+            "scalar_override",
+        )
+
+    if "decision_thresholds" not in checkpoint:
+        raise ValueError("Checkpoint is missing decision_thresholds")
+    if checkpoint.get("threshold_strategy") != THRESHOLD_STRATEGY:
+        raise ValueError("Checkpoint threshold strategy mismatch")
+    validation_manifest_sha256 = file_sha256(validation_manifest_path)
+    if (
+        checkpoint.get("threshold_validation_manifest_sha256")
+        != validation_manifest_sha256
+    ):
+        raise ValueError("Checkpoint validation manifest mismatch")
+    return (
+        threshold_mapping(checkpoint["decision_thresholds"], findings),
+        "checkpoint",
+        THRESHOLD_STRATEGY,
+    )
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--split", choices=("val", "test"), default="test")
-    parser.add_argument("--threshold", type=float, default=0.5)
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=None,
+        help="Optional scalar override. Omit to use validation-tuned checkpoint thresholds.",
+    )
     args = parser.parse_args()
 
-    if not 0.0 <= args.threshold <= 1.0:
+    if args.threshold is not None and not 0.0 <= args.threshold <= 1.0:
         raise ValueError("threshold must be in [0, 1]")
 
     config = load_config(args.config)
     set_seed(config["seed"])
     findings = config["data"]["target_findings"]
-    processed_root = Path(config["data"]["processed_root"])
-    split_root = processed_root / "splits"
-    split_metadata = load_split_metadata(split_root)
+    data_config = config["data"]
+    protocol_root = Path(data_config["protocol_dir"])
+    split_metadata = load_split_metadata(protocol_root)
+    if split_metadata.get("protocol_id") != data_config["protocol_id"]:
+        raise ValueError("Configured data protocol does not match split metadata")
     assignment = split_metadata["assignment_sha256"]
+
+    if args.split == "val":
+        processed_root = Path(data_config["processed_root"])
+        manifest_path = Path(data_config["val_manifest_path"])
+        source_annotation_sha256 = None
+    else:
+        external = data_config["external_test"]
+        processed_root = Path(external["processed_root"])
+        manifest_path = Path(external["manifest_path"])
+        external_metadata = json.loads(
+            (protocol_root / "external_test_metadata.json").read_text(encoding="utf-8")
+        )
+        source_annotation_sha256 = external_metadata["annotation_sha256"]
 
     preprocessing = config["preprocessing"]
     dataset = CXRDataset(
-        manifest_path=split_root / f"{args.split}.csv",
+        manifest_path=manifest_path,
         processed_root=processed_root,
         findings=findings,
         image_size=preprocessing["image_size"],
@@ -69,6 +136,7 @@ def main():
     loader_kwargs = build_loader_kwargs(
         config["training"],
         pin_memory=torch.cuda.is_available(),
+        batch_size=config["training"]["validation_batch_size"],
     )
     loader = DataLoader(
         dataset,
@@ -96,13 +164,26 @@ def main():
         model_name=config["model"]["name"],
         findings=findings,
         assignment_sha256=assignment,
+        protocol_id=data_config["protocol_id"],
     )
-    if "pos_weight" not in checkpoint:
-        raise ValueError("Checkpoint is missing pos_weight")
+    expected_loss_protocol = {
+        "name": config["training"]["loss"]["name"],
+        "positive_weight": config["training"]["loss"]["positive_weight"],
+    }
+    validate_checkpoint_loss_protocol(checkpoint, expected_loss_protocol)
 
-    criterion = torch.nn.BCEWithLogitsLoss(
-        pos_weight=checkpoint["pos_weight"].to(device)
+    (
+        decision_thresholds,
+        threshold_source,
+        threshold_strategy,
+    ) = select_decision_thresholds(
+        checkpoint=checkpoint,
+        findings=findings,
+        threshold_override=args.threshold,
+        validation_manifest_path=data_config["val_manifest_path"],
     )
+
+    criterion, _ = build_loss_from_checkpoint(checkpoint, device)
     result = run_epoch(
         model=model,
         loader=loader,
@@ -113,22 +194,31 @@ def main():
         use_amp=amp_enabled,
         show_progress=config["training"]["show_progress"],
         description=f"Evaluate {args.split}",
+        collect_predictions=True,
     )
     metrics = compute_classification_metrics(
         targets=result["targets"],
         probabilities=result["probabilities"],
         findings=findings,
-        threshold=args.threshold,
+        threshold=decision_thresholds,
     )
     metrics.update(
         {
             "split": args.split,
-            "threshold": args.threshold,
+            "decision_thresholds": decision_thresholds,
+            "threshold_source": threshold_source,
+            "threshold_strategy": threshold_strategy,
             "loss": float(result["loss"]),
             "num_images": len(dataset),
             "elapsed_seconds": result["elapsed_seconds"],
             "images_per_second": result["images_per_second"],
             "peak_gpu_memory_gb": result["peak_gpu_memory_gb"],
+            "peak_gpu_memory_allocated_gb": result[
+                "peak_gpu_memory_allocated_gb"
+            ],
+            "peak_gpu_memory_reserved_gb": result[
+                "peak_gpu_memory_reserved_gb"
+            ],
         }
     )
     predictions = build_predictions_table(
@@ -136,7 +226,7 @@ def main():
         targets=result["targets"],
         probabilities=result["probabilities"],
         findings=findings,
-        threshold=args.threshold,
+        threshold=decision_thresholds,
     )
 
     output_dir = Path(args.output_dir)
@@ -152,13 +242,19 @@ def main():
     )
     evaluation_metadata = {
         "split": args.split,
-        "threshold": args.threshold,
+        "decision_thresholds": decision_thresholds,
+        "threshold_source": threshold_source,
+        "threshold_strategy": threshold_strategy,
         "num_images": len(dataset),
         "model_name": config["model"]["name"],
         "checkpoint": str(Path(args.checkpoint)),
         "checkpoint_sha256": file_sha256(args.checkpoint),
         "checkpoint_epoch": int(checkpoint["epoch"]) + 1,
         "split_assignment_sha256": assignment,
+        "data_protocol_id": data_config["protocol_id"],
+        "dataset_manifest": str(manifest_path),
+        "dataset_manifest_sha256": file_sha256(manifest_path),
+        "source_annotation_sha256": source_annotation_sha256,
         "amp_enabled": amp_enabled,
         "data_loader": loader_kwargs,
         "findings": findings,

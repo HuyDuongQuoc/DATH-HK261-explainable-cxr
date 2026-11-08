@@ -4,13 +4,24 @@ data:
   raw_root: data/raw
   annotation_csv: data/raw/train.csv
 
+  protocol_id: vindr_s8515_exttest_v1
+  protocol_dir: data/protocols/vindr_s8515_exttest_v1
+  validation_ids_path: data/protocols/vindr_s8515_exttest_v1/validation_ids.csv
+  train_manifest_path: data/protocols/vindr_s8515_exttest_v1/train_manifest.csv
+  val_manifest_path: data/protocols/vindr_s8515_exttest_v1/val_manifest.csv
+
   manifest_path: data/processed/manifest.csv
   consensus_boxes_path: data/processed/consensus_boxes.csv
   metadata_path: data/processed/metadata.json
 
-  split_dir: data/processed/splits
-
   processed_root: data/processed/consensus_v1_224
+
+  external_test:
+    annotation_csv: data/raw/test.csv
+    image_dir: data/raw/test
+    processed_root: data/processed/consensus_test_v1_224
+    manifest_path: data/protocols/vindr_s8515_exttest_v1/external_test_manifest.csv
+    reader_id: consensus
 
   target_findings:
     - Aortic enlargement
@@ -32,9 +43,8 @@ data:
   positive_votes: 2
   minority_policy: negative
 
-  train_fraction: 0.70
+  train_fraction: 0.85
   val_fraction: 0.15
-  test_fraction: 0.15
 
 preprocessing:
   image_size: 224
@@ -55,6 +65,15 @@ preprocessing:
     - 0.225
 
   use_augmentation: false
+  augmentation:
+    rotation_degrees: 7.0
+    translate_fraction: 0.03
+    scale:
+      - 0.95
+      - 1.05
+    intensity_probability: 0.5
+    brightness: 0.10
+    contrast: 0.10
   use_clahe: false
 
 model:
@@ -63,6 +82,7 @@ model:
 
 training:
   batch_size: 8
+  validation_batch_size: 8
   num_workers: 2
   persistent_workers: true
   prefetch_factor: 2
@@ -76,3 +96,9 @@ training:
   monitor: macro_auroc
   patience: 5
   min_delta: 0.0001
+
+  loss:
+    name: weighted_bce
+    positive_weight:
+      mode: raw_ratio
+      max_value: null

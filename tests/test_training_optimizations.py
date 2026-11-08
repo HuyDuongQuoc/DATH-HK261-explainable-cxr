@@ -137,6 +137,7 @@ def test_checkpoint_round_trip_includes_scaler_state(tmp_path):
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
         "amp_scaler_state_dict": scaler.state_dict(),
+        "decision_thresholds": {"finding": 0.42},
     }
     path = tmp_path / "checkpoint.pt"
     save_checkpoint(checkpoint, path)
@@ -148,6 +149,7 @@ def test_checkpoint_round_trip_includes_scaler_state(tmp_path):
         device="cpu",
     )
     assert "amp_scaler_state_dict" in loaded
+    assert loaded["decision_thresholds"] == {"finding": 0.42}
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is unavailable")
@@ -173,7 +175,7 @@ def test_cuda_amp_epoch_is_finite():
     assert result["peak_gpu_memory_gb"] > 0
 
 
-def test_notebook_declares_amp_progress_and_no_repeated_validation():
+def test_notebook_declares_s8515_threshold_and_external_test_contract():
     notebook = json.loads(
         open("notebooks/02_experiment.ipynb", encoding="utf-8").read()
     )
@@ -182,6 +184,38 @@ def test_notebook_declares_amp_progress_and_no_repeated_validation():
     )
     assert "requirements-common.txt" in source
     assert "AMP FP16 probe: OK" in source
-    assert "baseline_s701515_seed42_amp" in source
+    assert 'EXPERIMENT_GROUP = "aug_auprc_v1"' in source
+    assert "aug_auprc_s8515_exttest_v1_seed42_amp" in source
+    assert 'MONITOR_NAME = "macro_average_precision"' in source
+    assert "configs/resnet50_aug_auprc.yaml" in source
+    assert "configs/densenet121_aug_auprc.yaml" in source
+    assert "configs/vit_aug_auprc.yaml" in source
+    assert 'REPO_BRANCH = "update_data"' in source
+    assert 'TRAIN_ARCHIVE = DRIVE_ROOT / "datasets" / "consensus_v1_224.zip"' in source
+    assert 'TEST_ARCHIVE = DRIVE_ROOT / "datasets" / "consensus_test_v1_224.zip"' in source
+    assert "EXPECTED_TRAIN_ROWS = 12_750" in source
+    assert "EXPECTED_VAL_ROWS = 2_250" in source
+    assert "EXPECTED_TEST_IMAGES = 3_000" in source
+    assert "RUN_FINAL_TEST = False" in source
+    assert 'CHECKPOINT_ROOT = DRIVE_ROOT / "checkpoints" / EXPERIMENT_GROUP' in source
+    assert 'RUN_LOG_ROOT = DRIVE_ROOT / "run_logs" / EXPERIMENT_GROUP' in source
+    assert "02_experiment_aug_auprc_v1_results.zip" in source
+    assert '"validation_macro_average_precision"' in source
+    assert '"selection_metric": MONITOR_NAME' in source
+    assert 'config["data"]["external_test"]["processed_root"]' in source
+    assert 'config["data"]["external_test"]["manifest_path"]' in source
+    assert '"threshold_source"] != "checkpoint"' in source
+    assert '"--split", "test"' in source
+    assert "final_test_plan.json" in source
+    assert "external_test_figures" in source
+    assert "def metadata_text_sha256(path):" in source
+    assert 'data.replace(b"\\n", b"\\r\\n")' in source
+    assert 'metadata_text_sha256(PROTOCOL_ROOT / "external_test_manifest.csv")' in source
+    assert 'metadata_text_sha256(REPO_DIR / "data" / "raw" / "test.csv")' in source
+    assert "EXPECTED_TEST_IMAGES = 2_250" not in source
+    assert "TEST_THRESHOLD = 0.5" not in source
+    assert "Internal-test" not in source
+    assert "internal_test" not in source
+    assert "raise SystemExit" not in source
     assert "enumerate(EXPERIMENTS, start=1)" in source
     assert "evaluate_best_checkpoint" not in source

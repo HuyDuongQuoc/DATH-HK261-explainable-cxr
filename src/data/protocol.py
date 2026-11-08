@@ -19,6 +19,7 @@ def validate_checkpoint_protocol(
     model_name,
     findings,
     assignment_sha256,
+    protocol_id,
 ):
     if checkpoint.get("model_name") != model_name:
         raise ValueError("Checkpoint backbone mismatch")
@@ -26,3 +27,5 @@ def validate_checkpoint_protocol(
         raise ValueError("Checkpoint class order mismatch")
     if checkpoint.get("split_assignment_sha256") != assignment_sha256:
         raise ValueError("Checkpoint split fingerprint mismatch")
+    if checkpoint.get("data_protocol_id") != protocol_id:
+        raise ValueError("Checkpoint data protocol mismatch")

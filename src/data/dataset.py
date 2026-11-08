@@ -17,15 +17,22 @@ class CXRDataset(Dataset):
         mean,
         std,
         load_masks=True,
+        augmentation_config=None,
     ):
+        self.load_masks = bool(load_masks)
+        if augmentation_config is not None and self.load_masks:
+            raise ValueError(
+                "Image-only augmentation is incompatible with load_masks=True"
+            )
         self.table = pd.read_csv(manifest_path)
         self.root = Path(processed_root)
         self.findings = list(findings)
         self.image_size = image_size
-        self.load_masks = bool(load_masks)
+        self.augmentation_config = augmentation_config
         self.transform = build_image_transform(
             mean=mean,
             std=std,
+            augmentation=augmentation_config,
         )
 
         if not self.table["image_id"].is_unique:

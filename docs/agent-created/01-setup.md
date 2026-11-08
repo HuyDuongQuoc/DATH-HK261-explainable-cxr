@@ -1,3 +1,5 @@
+> **Lưu ý:** đây là bản kế hoạch được tạo ở giai đoạn setup và có thể chứa tên file/lệnh dự kiến chưa được implement. Xem [`README.md`](../../README.md) để biết trạng thái và CLI hiện hành.
+
 Được. Với cách bạn muốn vận hành, tui sẽ **đổi hẳn roadmap theo hướng “local development → GitHub → Colab execution → Drive checkpoint → local result”**. Cách này hợp lý hơn việc chia notebook riêng cho từng model, vì proposal cần ResNet-50, DenseNet-121 và ViT chạy trên **cùng một experimental protocol** để so sánh công bằng. 
 
 Điểm quan trọng nhất là: **chỉ có một source code chung**. Khi chuyển ResNet → DenseNet → ViT, mình **không sửa training code**, chỉ thay file config hoặc tham số model.

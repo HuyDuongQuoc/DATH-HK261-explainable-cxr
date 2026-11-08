@@ -2,8 +2,13 @@ import argparse
 import json
 import shutil
 from pathlib import Path
+import sys
 import numpy as np
 import pandas as pd
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.data.annotations import (
     get_reader_roster,
@@ -14,9 +19,63 @@ from src.data.preprocessing import (
 )
 
 from src.utils.config import load_config
+from src.utils.checksums import write_protocol_checksums
 
 
 SPLIT_NAMES = ("train", "val", "test")
+
+
+def project_protocol_manifests(
+    processed_manifest_path,
+    assignments_path,
+    train_manifest_path,
+    val_manifest_path,
+    protocol_dir,
+    overwrite=False,
+):
+    processed_manifest_path = Path(processed_manifest_path)
+    assignments_path = Path(assignments_path)
+    outputs = {
+        "train": Path(train_manifest_path),
+        "val": Path(val_manifest_path),
+    }
+    if not processed_manifest_path.is_file():
+        raise FileNotFoundError(processed_manifest_path)
+    if not assignments_path.is_file():
+        raise FileNotFoundError(assignments_path)
+
+    processed = pd.read_csv(processed_manifest_path, dtype={"image_id": str})
+    assignments = pd.read_csv(assignments_path, dtype={"image_id": str})
+    if not processed["image_id"].is_unique:
+        raise ValueError("Processed manifest contains duplicate image IDs")
+    if list(assignments.columns) != ["image_id", "split"]:
+        raise ValueError("split_assignments.csv must contain image_id,split")
+    if not assignments["image_id"].is_unique:
+        raise ValueError("Split assignments contain duplicate image IDs")
+    if set(assignments["split"]) != {"train", "val"}:
+        raise ValueError("Split assignments must contain train and val only")
+    if set(assignments["image_id"]) != set(processed["image_id"]):
+        raise ValueError("Split assignments do not exactly cover processed manifest")
+
+    existing = [path for path in outputs.values() if path.exists()]
+    if existing and not overwrite:
+        raise FileExistsError(
+            "Protocol manifests already exist: " + ", ".join(str(path) for path in existing)
+        )
+
+    assignment_map = assignments.set_index("image_id")["split"]
+    processed = processed.copy()
+    processed["split"] = processed["image_id"].map(assignment_map)
+    counts = {}
+    for split_name, output_path in outputs.items():
+        table = processed.loc[processed["split"].eq(split_name)].drop(columns="split")
+        table = table.sort_values("image_id")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        table.to_csv(output_path, index=False)
+        counts[split_name] = len(table)
+
+    write_protocol_checksums(protocol_dir)
+    return counts
 
 
 def project_split_manifests(
@@ -148,17 +207,21 @@ def main():
 
     processed_manifest_path = processed_root / "manifest.csv"
 
-    raw_split_dir = Path(data_config["split_dir"])
-    processed_split_dir = processed_root / "splits"
+    protocol_dir = Path(data_config["protocol_dir"])
+    assignments_path = protocol_dir / "split_assignments.csv"
+    train_manifest_path = Path(data_config["train_manifest_path"])
+    val_manifest_path = Path(data_config["val_manifest_path"])
 
     if args.splits_only:
-        counts = project_split_manifests(
+        counts = project_protocol_manifests(
             processed_manifest_path=processed_manifest_path,
-            raw_split_dir=raw_split_dir,
-            processed_split_dir=processed_split_dir,
+            assignments_path=assignments_path,
+            train_manifest_path=train_manifest_path,
+            val_manifest_path=val_manifest_path,
+            protocol_dir=protocol_dir,
             overwrite=args.overwrite,
         )
-        print("Processed split manifests refreshed:", counts)
+        print("Protocol manifests refreshed:", counts)
         return
 
     if (
@@ -314,10 +377,12 @@ def main():
         index=False,
     )
 
-    project_split_manifests(
+    project_protocol_manifests(
         processed_manifest_path=processed_manifest_path,
-        raw_split_dir=raw_split_dir,
-        processed_split_dir=processed_split_dir,
+        assignments_path=assignments_path,
+        train_manifest_path=train_manifest_path,
+        val_manifest_path=val_manifest_path,
+        protocol_dir=protocol_dir,
         overwrite=args.overwrite,
     )
 
