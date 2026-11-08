@@ -70,3 +70,7 @@ training:
   monitor: macro_auroc
   patience: 5
   min_delta: 0.0001
+
+localization_loss:
+  enabled: false
+  lambda_loc: 0.25

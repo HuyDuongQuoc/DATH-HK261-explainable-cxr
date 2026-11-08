@@ -1,0 +1,113 @@
+\documentclass[10pt]{beamer}
+\usepackage[utf8]{inputenc}
+\usepackage[vietnamese]{babel}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{graphicx}
+
+\usetheme{Madrid}
+\usecolortheme{default}
+\setbeamertemplate{navigation symbols}{}
+
+\title[Báo cáo tiến độ ĐATH]{Xây dựng hệ thống hỗ trợ chẩn đoán bệnh lý phổi từ ảnh X-quang lồng ngực sử dụng mô hình kiến trúc CNN/ViT và kỹ thuật giải thích mô hình Grad-CAM}
+\author[Bảo, Huy]{
+    \textbf{Giảng viên hướng dẫn:}\\
+    \vspace{0.1cm}
+    PGS. TS. Quản Thành Thơ\\
+    \vspace{0.5cm}
+    \textbf{Thành viên tham gia:}\\
+    \vspace{0.1cm}
+    Quách Gia Bảo\\
+    Dương Quốc Huy\\
+}
+\date{Báo cáo tiến độ ngày 14/09/2026}
+
+\begin{document}
+
+\begin{frame}
+    \titlepage
+\end{frame}
+
+\begin{frame}{Tổng quan đề tài}
+    \textbf{Mục tiêu:} Xây dựng và đánh giá một hệ thống học sâu có khả năng nhận diện một số bất thường trên ảnh X-quang lồng ngực, tạo giải thích trực quan bằng Grad-CAM và đánh giá định lượng sự phù hợp giữa vùng giải thích của mô hình với chú thích (annotation) của bác sĩ.
+    \vspace{0.3cm}
+
+    \textbf{Các phần kỹ thuật cốt lõi:}
+    \begin{itemize}
+        \item Áp dụng Transfer Learning và Fine-tuning trên cả hai họ kiến trúc CNN (ResNet-50, DenseNet-121) và Vision Transformer (ViT-B/16) theo bài toán phân loại đa nhãn (Multi-label Classification).
+        \item Cơ chế định vị và giải thích mô hình bằng Grad-CAM.
+        \item Xây dựng hàm location-aware loss.
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Câu hỏi nghiên cứu và giả thuyết}
+    Đề tài được tổ chức xoay quanh hai câu hỏi nghiên cứu chính:
+
+    \begin{block}{RQ1 -- Classification và localization}
+        \textit{Does better classification imply better localization?}
+
+        \medskip
+        Mô hình có hiệu năng phân loại tốt hơn có đồng thời định vị vùng bất thường tốt hơn hay không?
+    \end{block}
+
+    \begin{block}{RQ2 -- Location-aware learning}
+        Việc bổ sung location-aware loss có giúp Grad-CAM tập trung tốt hơn vào vùng bất thường được bác sĩ đánh dấu mà không làm suy giảm đáng kể hiệu năng phân loại hay không?
+    \end{block}
+\end{frame}
+
+\begin{frame}{Dữ liệu nghiên cứu: VinDr-CXR}
+    \begin{itemize}
+        \item \textbf{Quy mô:} 18.000 ảnh X-quang lồng ngực (CXR) tư thế PA, gồm 15.000 ảnh huấn luyện và 3.000 ảnh kiểm thử.
+        \item \textbf{Gán nhãn:} 17 bác sĩ chẩn đoán hình ảnh tham gia. Mỗi ảnh huấn luyện được đọc độc lập bởi 3 bác sĩ; tập kiểm thử sử dụng nhãn đồng thuận từ 5 bác sĩ.
+        \item \textbf{Cấu trúc nhãn:} 28 nhãn, gồm 22 nhãn cục bộ (local labels) có khung bao (bounding box) và 6 nhãn toàn cục (global labels) phản ánh chẩn đoán ở mức ảnh.
+        \item \textbf{Vai trò trong đề tài:} Hỗ trợ xây dựng quy trình chung cho phân loại (classification), đánh giá Grad-CAM và huấn luyện có thông tin vị trí (location-aware training).
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Kiến trúc Pipeline dự kiến}
+    \begin{center}
+        \includegraphics[width=\textwidth]{pipeline.png}
+    \end{center}
+    \vspace{0.1cm}
+
+    \textbf{Luồng vận hành:}
+    \begin{enumerate}
+        \item Dựa trên tập dữ liệu ban đầu, tiền xử lí dữ liệu (resize, binary mask $G_c$ extraction).
+        \item Đưa qua các backbone (ResNet-50, DenseNet-121, ViT-B/16). Tối ưu bằng hàm mất mát phân loại cơ sở $L_{cls}$.
+        \item Tính toán $L_{loc}$ (Inside-Box Energy Loss) giữa activation map $A_c$ và ground-truth bounding box $G_c$ của bác sĩ; tổng hợp hàm mất mát huấn luyện: $L_{total} = L_{cls} + \lambda \cdot L_{loc}$.
+        \item Tạo bản đồ nhiệt Grad-CAM sau huấn luyện; đánh giá phân loại và định vị.
+    \end{enumerate}
+\end{frame}
+
+\begin{frame}{Nội dung công việc 2 tuần qua}
+    \textbf{1. Công việc chung:}
+    \begin{itemize}
+        \item Tìm hiểu lý thuyết về Grad-CAM, kiến trúc CNN và một mô hình Vision Transformer.
+        \item Nghiên cứu các tiêu chí đánh giá phân loại: AUROC, AUPRC, Precision, Recall/Sensitivity và F1-score.
+        \item Nghiên cứu cách đánh giá định vị: Pointing Game, Hit Rate và Intersection over Union (IoU).
+    \end{itemize}
+    \vspace{0.3cm}
+
+    \textbf{2. Công việc cá nhân:}
+    \begin{itemize}
+        \item \textbf{Bảo:} Tìm kiếm tài liệu, nghiên cứu tập dữ liệu VinDr-CXR, tìm hiểu các tiêu chí đánh giá và so sánh mô hình.
+        \item \textbf{Huy:} Nghiên cứu quy trình fine-tuning các mô hình ResNet-50, DenseNet-121 và ViT-B/16; phân tích hai câu hỏi nghiên cứu.
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Dự kiến kế hoạch 2 tuần tới}
+    \textbf{1. Công việc chung:}
+    \begin{itemize}
+        \item Thực hiện phân tích khám phá dữ liệu (EDA) và tiền xử lý trên tập dữ liệu.
+        \item Xây dựng framework huấn luyện chung.
+    \end{itemize}
+    \vspace{0.3cm}
+
+    \textbf{2. Công việc cá nhân:}
+    \begin{itemize}
+        \item \textbf{Bảo:} Xây dựng pipeline xử lý ảnh DICOM và thực hiện EDA.
+        \item \textbf{Huy:} Xây dựng framework huấn luyện.
+    \end{itemize}
+\end{frame}
+
+\end{document}

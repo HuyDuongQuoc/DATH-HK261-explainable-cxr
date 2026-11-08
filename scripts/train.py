@@ -43,6 +43,13 @@ def main():
     )
 
     parser.add_argument(
+        "--lambda-loc",
+        type=float,
+        default=None,
+        help="Override localization_loss.lambda_loc (for lambda ablation)",
+    )
+
+    parser.add_argument(
         "--resume",
         default=None,
     )
@@ -128,6 +135,17 @@ def main():
         )
     )
 
+    loc_config = config["localization_loss"]
+
+    if args.lambda_loc is not None:
+        loc_config["lambda_loc"] = args.lambda_loc
+
+    loc_weight = (
+        float(loc_config["lambda_loc"])
+        if loc_config["enabled"]
+        else 0.0
+    )
+
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=training_config["learning_rate"],
@@ -203,6 +221,8 @@ def main():
             criterion=criterion,
             device=device,
             optimizer=optimizer,
+            model_name=config["model"]["name"],
+            loc_weight=loc_weight,
         )
 
         val_result = run_epoch(
@@ -211,6 +231,8 @@ def main():
             criterion=criterion,
             device=device,
             optimizer=None,
+            model_name=config["model"]["name"],
+            loc_weight=loc_weight,
         )
 
         val_metrics = (
@@ -236,6 +258,10 @@ def main():
             "epoch": epoch + 1,
             "train_loss": train_result["loss"],
             "val_loss": val_result["loss"],
+            "train_cls_loss": train_result["cls_loss"],
+            "train_loc_loss": train_result["loc_loss"],
+            "val_cls_loss": val_result["cls_loss"],
+            "val_loc_loss": val_result["loc_loss"],
             "val_macro_auroc": (current_score),
             "val_macro_ap": val_metrics["macro_average_precision"],
             "val_macro_f1": val_metrics["macro_f1"],

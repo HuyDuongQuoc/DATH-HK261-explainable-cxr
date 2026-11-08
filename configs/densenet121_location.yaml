@@ -1,0 +1,5 @@
+model:
+  name: densenet121
+
+localization_loss:
+  enabled: true
