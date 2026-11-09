@@ -67,7 +67,10 @@ def _write_figures(macro, per_class, histories, output_dir):
     ax.axhline(0, color="black", linewidth=1); ax.set(title="Delta versus Stage 2 BCE control")
     fig.tight_layout(); fig.savefig(figure_root / "03_delta_vs_bce.png", dpi=200); plt.close(fig)
 
-    if not per_class.empty:
+    if (
+        not per_class.empty
+        and "delta_average_precision_vs_bce" in per_class.columns
+    ):
         matrix = per_class.pivot_table(index="finding", columns="variant", values="delta_average_precision_vs_bce")
         fig, ax = plt.subplots(figsize=(9, max(6, len(matrix) * 0.35)))
         sns.heatmap(matrix, cmap="RdBu_r", center=0, ax=ax)
@@ -103,6 +106,7 @@ def analyze_stage2(experiments, run_log_root, checkpoint_root, output_dir=None):
         run_name = experiment["run_name"]
         result_dir = run_log_root / "runs" / run_name
         checkpoint_path = checkpoint_root / run_name / "best.pt"
+        status_path = result_dir / "run_status.json"
         paths = {
             "metrics": result_dir / "best_val_metrics.json",
             "predictions": result_dir / "best_val_predictions.csv",
@@ -111,7 +115,19 @@ def analyze_stage2(experiments, run_log_root, checkpoint_root, output_dir=None):
             "checkpoint": checkpoint_path,
         }
         missing = [name for name, path in paths.items() if not path.is_file()]
-        status_rows.append({**experiment, "status": "pending" if missing else "complete", "missing": ",".join(missing)})
+        if status_path.is_file():
+            run_state = _read_json(status_path).get("state", "pending")
+        elif "_stage2v2_" in run_name:
+            run_state = "pending"
+        else:
+            run_state = "pending" if missing else "complete"
+        if run_state == "complete" and missing:
+            run_state = "pending"
+        status_rows.append({
+            **experiment,
+            "status": run_state,
+            "missing": ",".join(missing),
+        })
         if missing:
             continue
 
@@ -131,7 +147,7 @@ def analyze_stage2(experiments, run_log_root, checkpoint_root, output_dir=None):
             "loss_name": experiment["loss_name"],
             "gamma": experiment.get("gamma"),
             "weighting": experiment["weighting"],
-            "status": "complete",
+            "status": run_state,
             "best_epoch": int(metrics["checkpoint_epoch"]),
             "macro_average_precision": float(metrics["macro_average_precision"]),
             "macro_precision": float(metrics["macro_precision"]),
@@ -149,12 +165,13 @@ def analyze_stage2(experiments, run_log_root, checkpoint_root, output_dir=None):
         macro_rows.append(row)
         for metric_row in metrics["per_class"]:
             class_rows.append({"model": experiment["model_name"], "variant": experiment["variant"], **metric_row})
-        completed[experiment["variant"]] = {
-            "metrics": metrics,
-            "ids": ids,
-            "targets": targets,
-            "probabilities": probabilities,
-        }
+        if run_state == "complete":
+            completed[experiment["variant"]] = {
+                "metrics": metrics,
+                "ids": ids,
+                "targets": targets,
+                "probabilities": probabilities,
+            }
 
     status = pd.DataFrame(status_rows)
     macro = pd.DataFrame(macro_rows)

@@ -4,6 +4,17 @@ import numpy as np
 import torch
 from tqdm.auto import tqdm
 
+
+def gradients_are_finite(model):
+    for parameter in model.parameters():
+        gradient = parameter.grad
+        if gradient is None:
+            continue
+        values = gradient._values() if gradient.is_sparse else gradient
+        if not torch.isfinite(values).all():
+            return False
+    return True
+
 def run_epoch(
     model,
     loader,
@@ -45,7 +56,7 @@ def run_epoch(
     loss_total_tensor = torch.zeros((), dtype=torch.float64, device=device)
 
     with torch.set_grad_enabled(training):
-        for batch in progress:
+        for batch_index, batch in enumerate(progress):
             images = batch["image"].to(
                 device,
                 non_blocking=device.type == "cuda",
@@ -78,15 +89,33 @@ def run_epoch(
                 )
 
             if not torch.isfinite(loss):
-                raise RuntimeError("Nonfinite loss")
+                phase = description or ("train" if training else "evaluation")
+                raise RuntimeError(
+                    f"Nonfinite loss in {phase} at batch {batch_index}"
+                )
 
             if training:
                 if amp_enabled:
                     scaler.scale(loss).backward()
+                    scaler.unscale_(optimizer)
+                    if not gradients_are_finite(model):
+                        optimizer.zero_grad(set_to_none=True)
+                        phase = description or "train"
+                        raise RuntimeError(
+                            "Nonfinite gradient in "
+                            f"{phase} at batch {batch_index}"
+                        )
                     scaler.step(optimizer)
                     scaler.update()
                 else:
                     loss.backward()
+                    if not gradients_are_finite(model):
+                        optimizer.zero_grad(set_to_none=True)
+                        phase = description or "train"
+                        raise RuntimeError(
+                            "Nonfinite gradient in "
+                            f"{phase} at batch {batch_index}"
+                        )
                     optimizer.step()
 
             batch_size = len(images)

@@ -114,8 +114,21 @@ def validate_loss_config(training):
         if not 0.0 < gamma <= 5.0:
             raise ValueError("training.loss.gamma must be in (0, 5]")
         loss["gamma"] = gamma
+        stability_epsilon = _finite_number(
+            loss.get("stability_epsilon"),
+            "training.loss.stability_epsilon",
+        )
+        if not 0.0 < stability_epsilon < 1.0:
+            raise ValueError(
+                "training.loss.stability_epsilon must be in (0, 1)"
+            )
+        loss["stability_epsilon"] = stability_epsilon
     elif "gamma" in loss:
         raise ValueError("training.loss.gamma is not accepted for weighted_bce")
+    elif "stability_epsilon" in loss:
+        raise ValueError(
+            "training.loss.stability_epsilon is not accepted for weighted_bce"
+        )
 
     positive_weight = loss.get("positive_weight")
     if not isinstance(positive_weight, dict):

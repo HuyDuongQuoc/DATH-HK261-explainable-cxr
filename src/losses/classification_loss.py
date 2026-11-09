@@ -11,27 +11,39 @@ LEGACY_RAW_LOSS_PROTOCOL = {
 
 
 class SigmoidFocalLoss(nn.Module):
-    def __init__(self, pos_weight, gamma):
+    def __init__(self, pos_weight, gamma, stability_epsilon):
         super().__init__()
         gamma = float(gamma)
         if not np.isfinite(gamma) or gamma < 0.0:
             raise ValueError("gamma must be finite and non-negative")
+        stability_epsilon = float(stability_epsilon)
+        if not np.isfinite(stability_epsilon) or not 0.0 < stability_epsilon < 1.0:
+            raise ValueError("stability_epsilon must be finite and in (0, 1)")
         self.gamma = gamma
+        self.stability_epsilon = stability_epsilon
         self.register_buffer("pos_weight", pos_weight.detach().clone())
 
     def forward(self, logits, targets):
-        bce = F.binary_cross_entropy_with_logits(
-            logits,
-            targets,
-            pos_weight=self.pos_weight,
-            reduction="none",
-        )
-        probabilities = torch.sigmoid(logits)
-        probability_t = targets * probabilities + (1.0 - targets) * (
-            1.0 - probabilities
-        )
-        modulation = (1.0 - probability_t).pow(self.gamma)
-        return (modulation * bce).mean()
+        with torch.autocast(device_type=logits.device.type, enabled=False):
+            logits_fp32 = logits.float()
+            targets_fp32 = targets.float()
+            bce = F.binary_cross_entropy_with_logits(
+                logits_fp32,
+                targets_fp32,
+                pos_weight=self.pos_weight.float(),
+                reduction="none",
+            )
+            probabilities = torch.sigmoid(logits_fp32)
+            probability_t = (
+                targets_fp32 * probabilities
+                + (1.0 - targets_fp32) * (1.0 - probabilities)
+            )
+            focal_base = (1.0 - probability_t).clamp(
+                min=self.stability_epsilon,
+                max=1.0,
+            )
+            modulation = focal_base.pow(self.gamma)
+            return (modulation * bce).mean()
 
 
 def calculate_pos_weight(
@@ -105,6 +117,7 @@ def build_classification_loss(
         criterion = SigmoidFocalLoss(
             pos_weight=pos_weight,
             gamma=loss_config["gamma"],
+            stability_epsilon=loss_config["stability_epsilon"],
         )
 
     loss_protocol = {
@@ -116,6 +129,9 @@ def build_classification_loss(
     }
     if loss_name == "sigmoid_focal":
         loss_protocol["gamma"] = float(loss_config["gamma"])
+        loss_protocol["stability_epsilon"] = float(
+            loss_config["stability_epsilon"]
+        )
     return criterion, pos_weight, loss_protocol, metadata
 
 
@@ -131,6 +147,7 @@ def build_loss_from_checkpoint(checkpoint, device):
         criterion = SigmoidFocalLoss(
             pos_weight=pos_weight,
             gamma=loss_protocol["gamma"],
+            stability_epsilon=loss_protocol["stability_epsilon"],
         )
     else:
         raise ValueError("Unsupported checkpoint loss protocol")
