@@ -102,3 +102,7 @@ training:
     positive_weight:
       mode: raw_ratio
       max_value: null
+
+localization_loss:
+  enabled: false
+  lambda_loc: 0.25

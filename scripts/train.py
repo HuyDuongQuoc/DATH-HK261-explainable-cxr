@@ -67,8 +67,9 @@ def build_training_protocol(
     augmentation_protocol,
     loss_protocol,
     amp_enabled,
+    localization_protocol=None,
 ):
-    return {
+    protocol = {
         "batch_size": int(training_config["batch_size"]),
         "validation_batch_size": int(training_config["validation_batch_size"]),
         "num_workers": int(training_config["num_workers"]),
@@ -81,6 +82,10 @@ def build_training_protocol(
         "loss_protocol": loss_protocol,
         "monitor": training_config["monitor"],
     }
+    if localization_protocol is not None:
+        # chỉ thêm khi bật, để checkpoint baseline cũ vẫn resume được
+        protocol["localization_loss"] = localization_protocol
+    return protocol
 
 
 def validate_resume_training_protocol(checkpoint, expected_protocol):
@@ -175,6 +180,13 @@ def main():
     )
 
     parser.add_argument(
+        "--lambda-loc",
+        type=float,
+        default=None,
+        help="Override localization_loss.lambda_loc (for lambda search)",
+    )
+
+    parser.add_argument(
         "--resume",
         default=None,
     )
@@ -205,6 +217,26 @@ def main():
     augmentation_protocol = build_augmentation_protocol(preprocessing_config)
     train_augmentation = augmentation_protocol["config"]
 
+    loc_config = config["localization_loss"]
+    if args.lambda_loc is not None:
+        loc_config["lambda_loc"] = args.lambda_loc
+    loc_weight = (
+        float(loc_config["lambda_loc"])
+        if loc_config["enabled"]
+        else 0.0
+    )
+    use_loc = loc_weight > 0
+    if use_loc and augmentation_protocol["enabled"]:
+        raise ValueError(
+            "Location-aware loss requires masks, which are incompatible "
+            "with image-only augmentation; set use_augmentation: false"
+        )
+    localization_protocol = (
+        {"lambda_loc": loc_weight, "mask": "union_masks"}
+        if use_loc
+        else None
+    )
+
     train_dataset = CXRDataset(
         manifest_path=config["data"]["train_manifest_path"],
         processed_root=processed_root,
@@ -212,7 +244,7 @@ def main():
         image_size=preprocessing_config["image_size"],
         mean=preprocessing_config["mean"],
         std=preprocessing_config["std"],
-        load_masks=False,
+        load_masks=use_loc,
         augmentation_config=train_augmentation,
     )
 
@@ -223,7 +255,7 @@ def main():
         image_size=preprocessing_config["image_size"],
         mean=preprocessing_config["mean"],
         std=preprocessing_config["std"],
-        load_masks=False,
+        load_masks=use_loc,
         augmentation_config=None,
     )
     validation_manifest_sha256 = file_sha256(
@@ -292,6 +324,7 @@ def main():
         augmentation_protocol=augmentation_protocol,
         loss_protocol=loss_protocol,
         amp_enabled=amp_enabled,
+        localization_protocol=localization_protocol,
     )
 
     optimizer = torch.optim.AdamW(
@@ -402,6 +435,8 @@ def main():
             use_amp=amp_enabled,
             show_progress=training_config["show_progress"],
             collect_predictions=False,
+            model_name=config["model"]["name"],
+            loc_weight=loc_weight,
             description=(
                 f"Epoch {epoch + 1:02d}/{training_config['epochs']:02d} — train"
             ),
@@ -417,6 +452,8 @@ def main():
             use_amp=amp_enabled,
             show_progress=training_config["show_progress"],
             collect_predictions=True,
+            model_name=config["model"]["name"],
+            loc_weight=loc_weight,
             description=(
                 f"Epoch {epoch + 1:02d}/{training_config['epochs']:02d} — val"
             ),
@@ -456,6 +493,10 @@ def main():
             "epoch": epoch + 1,
             "train_loss": train_result["loss"],
             "val_loss": val_result["loss"],
+            "train_cls_loss": train_result["cls_loss"],
+            "train_loc_loss": train_result["loc_loss"],
+            "val_cls_loss": val_result["cls_loss"],
+            "val_loc_loss": val_result["loc_loss"],
             "val_macro_auroc": val_metrics["macro_auroc"],
             "val_macro_ap": val_metrics["macro_average_precision"],
             "val_macro_f1_tuned": val_metrics["macro_f1"],

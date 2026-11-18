@@ -1,0 +1,5 @@
+model:
+  name: resnet50
+
+localization_loss:
+  enabled: true

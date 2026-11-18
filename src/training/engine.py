@@ -4,6 +4,9 @@ import numpy as np
 import torch
 from tqdm.auto import tqdm
 
+from src.losses.localization_loss import localization_loss
+from src.models.resnet import forward_with_activation
+
 def run_epoch(
     model,
     loader,
@@ -15,8 +18,13 @@ def run_epoch(
     show_progress=False,
     description=None,
     collect_predictions=True,
+    model_name=None,
+    loc_weight=0.0,
 ):
     training = optimizer is not None
+    use_loc = loc_weight > 0
+    if use_loc and model_name is None:
+        raise ValueError("model_name is required when loc_weight > 0")
     amp_enabled = bool(use_amp and device.type == "cuda")
     if training and amp_enabled and scaler is None:
         raise ValueError("AMP training requires a GradScaler")
@@ -43,6 +51,8 @@ def run_epoch(
     )
 
     loss_total_tensor = torch.zeros((), dtype=torch.float64, device=device)
+    cls_total_tensor = torch.zeros((), dtype=torch.float64, device=device)
+    loc_total_tensor = torch.zeros((), dtype=torch.float64, device=device)
 
     with torch.set_grad_enabled(training):
         for batch in progress:
@@ -64,7 +74,14 @@ def run_epoch(
                 dtype=torch.float16,
                 enabled=amp_enabled,
             ):
-                logits = model(images)
+                if use_loc:
+                    logits, activation = forward_with_activation(
+                        model,
+                        model_name,
+                        images,
+                    )
+                else:
+                    logits = model(images)
 
                 if logits.shape != labels.shape:
                     raise ValueError(
@@ -72,10 +89,22 @@ def run_epoch(
                         "shapes do not match"
                     )
 
-                loss = criterion(
+                cls_loss = criterion(
                     logits,
                     labels,
                 )
+
+            if use_loc:
+                # L_loc tính ở fp32 ngoài autocast để tỉ lệ năng lượng không mất độ chính xác
+                loc_loss = localization_loss(
+                    activation.float(),
+                    batch["union_masks"].to(device, non_blocking=device.type == "cuda"),
+                    batch["mask_valid"].to(device, non_blocking=device.type == "cuda"),
+                )
+                loss = cls_loss.float() + loc_weight * loc_loss
+            else:
+                loc_loss = torch.zeros_like(cls_loss)
+                loss = cls_loss
 
             if not torch.isfinite(loss):
                 raise RuntimeError("Nonfinite loss")
@@ -92,6 +121,8 @@ def run_epoch(
             batch_size = len(images)
 
             loss_total_tensor += loss.detach().to(torch.float64) * batch_size
+            cls_total_tensor += cls_loss.detach().to(torch.float64) * batch_size
+            loc_total_tensor += loc_loss.detach().to(torch.float64) * batch_size
 
             image_count += batch_size
 
@@ -142,6 +173,8 @@ def run_epoch(
 
     result = {
         "loss": total_loss / image_count,
+        "cls_loss": float(cls_total_tensor.item()) / image_count,
+        "loc_loss": float(loc_total_tensor.item()) / image_count,
         "elapsed_seconds": elapsed_seconds,
         "images_per_second": image_count / elapsed_seconds,
         "peak_gpu_memory_gb": peak_gpu_memory_allocated_gb,
