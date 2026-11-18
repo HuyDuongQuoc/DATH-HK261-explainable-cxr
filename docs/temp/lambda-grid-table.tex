@@ -1,0 +1,34 @@
+% Frame kết quả Lambda Search (validation). Dán vào file báo cáo; cần: booktabs, tabularx.
+% Số liệu: results/full_lambda_grid.csv (cột val_*). In đậm = tốt nhất mỗi cột (trong 7 run seed 42).
+\begin{frame}{Thí nghiệm 1: Kết quả Lambda Search (Validation)}
+    \small
+    \begin{tabularx}{\textwidth}{@{}l*{6}{>{\centering\arraybackslash}X}@{}}
+        \toprule
+        & \multicolumn{3}{c}{\textbf{Classification}} & \multicolumn{3}{c}{\textbf{Localization}} \\
+        \cmidrule(lr){2-4} \cmidrule(lr){5-7}
+        $\boldsymbol{\lambda}$ & AUROC & AUPRC & F1 & Pointing & EIB & IoU \\
+        \midrule
+        0 (baseline) & 0.9545 & 0.480 & 0.506 & 0.326 & 0.208 & 0.173 \\
+        0.25 & 0.9571 & \textbf{0.499} & \textbf{0.542} & 0.550 & 0.363 & 0.279 \\
+        0.5  & 0.9517 & 0.464 & 0.499 & 0.574 & 0.367 & 0.285 \\
+        1    & \textbf{0.9600} & 0.483 & 0.515 & \textbf{0.619} & 0.437 & 0.292 \\
+        2    & 0.9590 & 0.479 & 0.516 & 0.588 & 0.426 & \textbf{0.293} \\
+        5    & 0.9539 & 0.445 & 0.484 & 0.599 & 0.449 & 0.277 \\
+        10   & 0.9548 & 0.453 & 0.508 & 0.608 & \textbf{0.463} & 0.280 \\
+        \bottomrule
+    \end{tabularx}
+
+    \vspace{0.2cm}
+    {\footnotesize ResNet-50 fine-tune từ ImageNet, toàn bộ dataset (train 12.750, validation 2.250 ảnh), một seed (42). Localization tính trên 1.326 cặp (ảnh, finding) có bounding box; ngưỡng IoU chọn trên validation. Baseline và $\lambda=0.25$ chạy trên RTX 3060, các $\lambda$ còn lại trên A10G.}
+
+    \vspace{0.2cm}
+    \begin{block}{Nhận xét}
+        \small
+        \begin{itemize}
+            \item Mọi $\lambda>0$ đều tăng rõ localization so với baseline (EIB từ 0.208 lên 0.363--0.463), trong khi AUROC không giảm quá 0.01.
+            \item Localization tăng nhanh đến $\lambda\approx 1$ rồi bão hòa; $\lambda$ lớn làm AUPRC giảm.
+            \item Chọn $\lambda^*=1$: AUROC không giảm quá 0.01 và hạng trung bình tốt nhất trên ba chỉ số localization (quy tắc ban đầu theo EIB cho $\lambda=10$, nhưng EIB đã bão hòa từ $\lambda\approx 1$).
+            \item Chỉ một seed: chênh lệch nhỏ giữa các $\lambda$ gần nhau chưa kết luận được (baseline seed 43 lệch khoảng 0.02 ở EIB).
+        \end{itemize}
+    \end{block}
+\end{frame}
