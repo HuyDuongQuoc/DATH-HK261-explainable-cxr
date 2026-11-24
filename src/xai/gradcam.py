@@ -7,7 +7,8 @@ import torch.nn.functional as F
 from PIL import Image
 
 
-SUPPORTED_MODELS = ("resnet50", "densenet121", "vit_b_16")
+SUPPORTED_MODELS = ("resnet50", "densenet121", "vit_b_16", "vit_b_16_gap")
+TARGET_LAYERS = ("last", "penultimate")
 
 
 class GradCAM:
@@ -25,14 +26,28 @@ class GradCAM:
         class_idx: list[int] độ dài B
     """
 
-    def __init__(self, model, model_name: str):
+    def __init__(self, model, model_name: str, target_layer: str = "last"):
+        """
+        target_layer (chỉ CNN):
+          - "last": feature map cuối (mặc định). Với GAP + linear, Grad-CAM ở đây
+            trùng CAM mà L_loc tối ưu, nên không độc lập với loss.
+          - "penultimate": output của layer3 (ResNet) / denseblock3 (DenseNet) /
+            block áp chót (ViT-GAP), grid 14x14, không phải đại lượng được tối ưu
+            trực tiếp.
+        ViT-GAP ở lớp cuối được xử lý như CNN: Grad-CAM trùng CAM trên patch token.
+        """
         if model_name not in SUPPORTED_MODELS:
             raise ValueError(
                 f"[GradCAM ERROR] unsupported model: {model_name}"
             )
+        if target_layer not in TARGET_LAYERS:
+            raise ValueError(f"[GradCAM ERROR] unsupported target_layer: {target_layer}")
+        if target_layer != "last" and model_name == "vit_b_16":
+            raise ValueError("[GradCAM ERROR] target_layer is only configurable for CNNs")
 
         self.model = model
         self.model_name = model_name
+        self.target_layer = target_layer
         self.activations = None
         self.gradients = None
         self.hook_handles = []
@@ -66,23 +81,45 @@ class GradCAM:
     def _forward(self, x):
         m = self.model
 
+        penultimate = self.target_layer == "penultimate"
+
         if self.model_name == "resnet50":
             x = m.maxpool(m.relu(m.bn1(m.conv1(x))))
-            x = m.layer4(m.layer3(m.layer2(m.layer1(x))))
-            features = x
+            x = m.layer3(m.layer2(m.layer1(x)))
+            if penultimate:
+                self._capture(x)
+            features = m.layer4(x)
             head = m.fc
 
+        elif self.model_name == "vit_b_16_gap":
+            capture_layer = len(m.backbone.encoder.layers) - 2
+            tokens = m.encode(
+                x,
+                capture_layer=capture_layer if penultimate else None,
+                capture_fn=self._capture if penultimate else None,
+            )
+            features = m.tokens_to_grid(tokens[:, 1:])
+            head = m.head
+
         elif self.model_name == "densenet121":
-            features = F.relu(m.features(x))  # không inplace
+            for name, module in m.features.named_children():
+                x = module(x)
+                if penultimate and name == "denseblock3":
+                    self._capture(x)
+            features = F.relu(x)  # không inplace
             head = m.classifier
 
         else:
             return m(x)
 
-        features.register_hook(self._save_gradient)
-        self.activations = features
+        if not penultimate:
+            self._capture(features)
 
         return head(torch.flatten(F.adaptive_avg_pool2d(features, 1), 1))
+
+    def _capture(self, tensor):
+        tensor.register_hook(self._save_gradient)
+        self.activations = tensor
 
     def generate(self, input_tensor: torch.Tensor, class_idx=None):
         """class_idx: None (argmax), int, hoặc list/tensor độ dài B."""
@@ -115,8 +152,10 @@ class GradCAM:
             if self.gradients is None:
                 raise RuntimeError("[GradCAM ERROR] no gradient captured")
 
-            if self.model_name == "vit_b_16":
-                cam = self._process_vit()
+            if self.model_name == "vit_b_16" or (
+                self.model_name == "vit_b_16_gap" and self.target_layer == "penultimate"
+            ):
+                cam = self._process_vit()  # activation là token [B, 1+N, D]
             else:
                 cam = self._process_cnn()
         finally:

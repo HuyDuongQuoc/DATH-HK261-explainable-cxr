@@ -1,0 +1,6 @@
+model:
+  name: resnet50
+training:
+  loss:
+    name: weighted_bce
+    positive_weight: {mode: sqrt_ratio_capped, max_value: 3.0}

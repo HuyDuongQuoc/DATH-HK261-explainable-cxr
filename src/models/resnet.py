@@ -1,3 +1,4 @@
+import torch
 import torch.nn.functional as F
 
 
@@ -28,16 +29,23 @@ def forward_with_activation(
         features = F.relu(model.features(images))
         head = model.classifier
 
+    elif model_name == "vit_b_16_gap":
+        features = model.feature_map(images)  # [B, D, 14, 14]
+        head = model.head
+
     else:
         raise NotImplementedError(
             f"Spatial activation not supported for {model_name}"
         )
 
-    activation = F.conv2d(
-        features,
-        head.weight[:, :, None, None],
-        head.bias,
-    )
+    # Tính CAM ở fp32 kể cả khi đang autocast fp16, để L_loc (tỉ lệ năng lượng)
+    # không mất độ chính xác trước khi qua softplus/relu.
+    with torch.autocast(device_type=features.device.type, enabled=False):
+        activation = F.conv2d(
+            features.float(),
+            head.weight.float()[:, :, None, None],
+            None if head.bias is None else head.bias.float(),
+        )
 
     logits = activation.mean(dim=(2, 3))
 

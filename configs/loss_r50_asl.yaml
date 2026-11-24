@@ -1,0 +1,10 @@
+model:
+  name: resnet50
+training:
+  prior_bias_init: true
+  loss:
+    name: asymmetric
+    gamma_pos: 0.0
+    gamma_neg: 4.0
+    clip: 0.05
+    positive_weight: {mode: none, max_value: null}
