@@ -1,0 +1,4 @@
+# ViT-B/16 với head GAP trên patch token (src/models/vit_gap.py).
+# Baseline (λ=0) cho ablation location-aware của ViT; không so trực tiếp với vit_baseline (head CLS).
+model:
+  name: vit_b_16_gap

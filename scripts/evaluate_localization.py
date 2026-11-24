@@ -16,15 +16,20 @@ from src.data.protocol import (
     load_split_metadata,
     validate_checkpoint_protocol,
 )
+from src.metrics.localization_stats import bootstrap_macro_ci
 from src.metrics.localization import iou_column, select_iou_threshold
-from src.models.factory import build_model
+from src.models.factory import build_model, model_kwargs_from_config
 from src.utils.checkpoint import load_checkpoint
 from src.utils.config import load_config
 from src.utils.seed import set_seed
 from src.xai.evaluation import (
+    ATTRIBUTION_METHODS,
     collect_localization_records,
     summarize_by_finding,
 )
+from src.xai.priors import accumulate_class_priors, load_or_build_priors
+
+CI_METRICS = ("pointing_hit", "eib", "eib_over_area", "eib_minus_prior", "iou_mean")
 
 
 def build_loader(config, findings, processed_root, manifest_path):
@@ -63,6 +68,39 @@ def main():
         default=None,
         help="Chỉ đánh giá khoảng N ảnh đầu mỗi split (smoke test).",
     )
+    parser.add_argument(
+        "--method",
+        choices=ATTRIBUTION_METHODS,
+        default="gradcam",
+        help=(
+            "gradcam: lớp cuối (trùng CAM mà L_loc tối ưu); "
+            "gradcam_penultimate: layer3/denseblock3; "
+            "occlusion: không dùng gradient, độc lập với loss."
+        ),
+    )
+    parser.add_argument("--occlusion-patch", type=int, default=32)
+    parser.add_argument("--occlusion-stride", type=int, default=32)
+    parser.add_argument(
+        "--box-occlusion",
+        action="store_true",
+        help="Đo logit giảm khi che toàn bộ vùng trong/ngoài box.",
+    )
+    parser.add_argument(
+        "--iou-threshold",
+        type=float,
+        default=None,
+        help=(
+            "Cố định ngưỡng IoU chung cho mọi run (khuyến nghị khi so sánh run). "
+            "Mặc định: chọn trên validation của chính run này."
+        ),
+    )
+    parser.add_argument(
+        "--prior-cache",
+        default="outputs/priors/train_union_prior.npz",
+        help="File cache prior giải phẫu (trung bình union mask train theo finding).",
+    )
+    parser.add_argument("--no-prior", action="store_true")
+    parser.add_argument("--n-boot", type=int, default=1000)
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -80,7 +118,10 @@ def main():
         model_name=model_name,
         num_classes=len(findings),
         pretrained=False,
+        **model_kwargs_from_config(config["model"]),
     ).to(device)
+    if model_name == "vit_b_16" and args.method == "gradcam_penultimate":
+        raise ValueError("gradcam_penultimate is only supported for CNNs")
     checkpoint = load_checkpoint(
         checkpoint_path=args.checkpoint,
         model=model,
@@ -98,6 +139,33 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    priors = None
+    if not args.no_prior:
+        priors, prior_counts = load_or_build_priors(
+            args.prior_cache,
+            lambda: accumulate_class_priors(
+                build_loader(
+                    config,
+                    findings,
+                    Path(data_config["processed_root"]),
+                    Path(data_config["train_manifest_path"]),
+                ),
+                len(findings),
+            ),
+            findings,
+        )
+
+    record_kwargs = {
+        "method": args.method,
+        "priors": priors,
+        "box_occlusion": args.box_occlusion,
+        "occlusion_kwargs": {
+            "patch": args.occlusion_patch,
+            "stride": args.occlusion_stride,
+        },
+        "max_images": args.max_images,
+    }
+
     # 1) Validation: chọn threshold IoU
     val_loader = build_loader(
         config,
@@ -106,19 +174,31 @@ def main():
         Path(data_config["val_manifest_path"]),
     )
     val_records = collect_localization_records(
-        model, model_name, val_loader, findings, device,
-        max_images=args.max_images,
+        model, model_name, val_loader, findings, device, **record_kwargs,
     )
     if val_records.empty:
         raise ValueError("No valid (image, class) pairs in validation")
-    threshold, mean_iou_by_threshold = select_iou_threshold(val_records)
-    print(f"IoU threshold selected on validation: {threshold:.2f}", flush=True)
+    selected_threshold, mean_iou_by_threshold = select_iou_threshold(val_records)
+    if args.iou_threshold is not None:
+        threshold = float(args.iou_threshold)
+        threshold_source = "fixed (--iou-threshold)"
+        if iou_column(threshold) not in val_records.columns:
+            raise ValueError("--iou-threshold must be one of DEFAULT_IOU_THRESHOLDS")
+    else:
+        threshold = selected_threshold
+        threshold_source = "validation"
+    print(f"IoU threshold ({threshold_source}): {threshold:.2f}", flush=True)
 
     result = {
         "model": model_name,
         "checkpoint": str(args.checkpoint),
         "iou_threshold": threshold,
-        "iou_threshold_selected_on": "validation",
+        "iou_threshold_selected_on": threshold_source,
+        "iou_threshold_best_on_validation": selected_threshold,
+        "method": args.method,
+        "occlusion": record_kwargs["occlusion_kwargs"] if args.method == "occlusion" else None,
+        "box_occlusion": args.box_occlusion,
+        "prior": None if priors is None else str(args.prior_cache),
         "validation_mean_iou_by_threshold": mean_iou_by_threshold,
         "max_images": args.max_images,
     }
@@ -135,8 +215,7 @@ def main():
             Path(external["manifest_path"]),
         )
         test_records = collect_localization_records(
-            model, model_name, test_loader, findings, device,
-            max_images=args.max_images,
+            model, model_name, test_loader, findings, device, **record_kwargs,
         )
         splits["test"] = (test_records, "external_test")
 
@@ -152,6 +231,16 @@ def main():
             "macro_eib": float(macro["eib"]),
             "macro_iou": float(macro["iou"]),
             "iou_column": iou_column(threshold),
+            "macro": {
+                key: float(value)
+                for key, value in macro.items()
+                if key not in ("finding", "n_pairs")
+            },
+            "bootstrap_ci_by_image": {
+                metric: bootstrap_macro_ci(records, metric, n_boot=args.n_boot)
+                for metric in CI_METRICS
+                if metric in records.columns and args.n_boot > 0
+            },
         }
         print(split_name, result[split_name], flush=True)
 

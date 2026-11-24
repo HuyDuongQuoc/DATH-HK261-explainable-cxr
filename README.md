@@ -2,7 +2,7 @@
 
 Nghiên cứu phân loại đa nhãn và explainable AI trên ảnh X-quang ngực VinDr-CXR. Mục tiêu cuối của dự án là so sánh chất lượng phân loại với khả năng định vị tổn thương, sau đó đánh giá location-aware learning trên CNN và Vision Transformer.
 
-> **Trạng thái hiện tại:** codebase đã có data protocol tái lập được, pipeline tiền xử lý, ba baseline phân loại (ResNet-50, DenseNet-121, ViT-B/16), train/resume và evaluate. Grad-CAM, localization metrics, location-aware loss và Streamlit prototype vẫn thuộc roadmap, chưa được implement trong source hiện tại.
+> **Trạng thái hiện tại:** codebase đã có data protocol tái lập được, pipeline tiền xử lý, ba baseline phân loại (ResNet-50, DenseNet-121, ViT-B/16), train/resume và evaluate. Grad-CAM, localization metrics (Pointing Game, EIB, IoU), location-aware loss và lưới λ cũng đã có. Streamlit prototype vẫn thuộc roadmap.
 
 ## Phạm vi đã implement
 
@@ -16,8 +16,10 @@ Nghiên cứu phân loại đa nhãn và explainable AI trên ảnh X-quang ng�
 | Train-time augmentation bảo thủ và chọn checkpoint bằng macro-AUPRC | Đã có |
 | Threshold F1 riêng cho từng lớp, chỉ calibration trên validation | Đã có |
 | AUROC, Average Precision, Precision, Recall và F1 | Đã có |
-| Grad-CAM và localization metrics | Chưa có |
-| Location-aware loss | Chưa có |
+| Grad-CAM (ResNet-50, DenseNet-121, ViT-B/16) và localization metrics | Đã có |
+| Attribution độc lập với loss (Grad-CAM lớp áp chót, occlusion) và box-occlusion test | Đã có |
+| Prior giải phẫu, metric chuẩn hóa theo diện tích box, bootstrap CI, so sánh paired | Đã có |
+| Location-aware loss `L_cls + λ·L_loc` (mask union/majority/soft, softplus/relu) | Đã có |
 | Streamlit prototype | Chưa có |
 
 Roadmap nghiên cứu đầy đủ nằm trong [`docs/Proposal.md`](docs/Proposal.md).
@@ -49,7 +51,7 @@ src/utils/      Config, seed, checkpoint và checksum helpers
 tests/          Test cho split, protocol, threshold, evaluate và training
 ```
 
-`src/xai/` và `app/` hiện chưa có implementation chức năng.
+`app/` hiện chưa có implementation chức năng.
 
 ## Cài đặt
 
@@ -254,6 +256,73 @@ Các output chính gồm:
 - `best.pt`, `last.pt` trong checkpoint directory.
 - `config.json`, `history.csv`, `best_val_metrics.json`, `latest_val_metrics.json` trong result directory.
 - `{split}_metrics.json`, `{split}_predictions.csv`, `evaluation_metadata.json` trong evaluation directory.
+
+## Đánh giá localization
+
+```bash
+python scripts/evaluate_localization.py \
+  --config configs/resnet50_location.yaml \
+  --checkpoint outputs/full/runs/r50_l1/ckpt/best.pt \
+  --output-dir outputs/full/runs/r50_l1/loc_test_occlusion \
+  --split test --method occlusion --box-occlusion --iou-threshold 0.30
+```
+
+- `--method gradcam` (mặc định) dùng feature map cuối. Với GAP + linear, heatmap này trùng CAM mà `L_loc` tối ưu, nên **không độc lập với loss**. Khi báo cáo tác động của `L_loc`, cần kèm `gradcam_penultimate` (layer3/denseblock3) hoặc `occlusion`.
+- `--box-occlusion` đo logit giảm khi che toàn bộ vùng trong box (`drop_inside`) và ngoài box (`drop_outside`): phép thử hành vi, không qua heatmap.
+- Prior giải phẫu (trung bình union mask train theo finding, không nhìn ảnh) được build một lần và cache ở `outputs/priors/train_union_prior.npz`. Records có `prior_eib`, `prior_hit`, `eib_minus_prior`, `prior_corr`. Mô hình nên được so với prior, không chỉ với 0.
+- `box_area` là mức ngẫu nhiên của EIB/Pointing; `eib_over_area` so được giữa validation (union của 3 reader, box to hơn) và external test (một consensus, box nhỏ hơn).
+- `iou_mean` (trung bình mọi ngưỡng) hoặc `--iou-threshold` cố định giúp so IoU giữa các run mà không phụ thuộc ngưỡng chọn riêng từng run.
+- `localization_summary.json` có CI bootstrap theo ảnh cho các metric chính.
+
+So sánh paired hai run (localization và macro-AUROC):
+
+```bash
+python scripts/compare_runs.py --config configs/resnet50_location.yaml \
+  --a-loc <baseline>/test_localization_records.csv --b-loc <guided>/test_localization_records.csv \
+  --a-pred <baseline>/test_predictions.csv --b-pred <guided>/test_predictions.csv \
+  --output outputs/comparisons/base_vs_guided.json
+```
+
+## Tùy chọn location-aware loss
+
+Trong `localization_loss` của config:
+
+- `mask`: `union` (mặc định, ≥1 reader), `majority` (≥2/3 reader), `soft` (tỉ lệ reader vẽ box làm trọng số).
+- `activation`: `softplus` (mặc định) hoặc `relu` (như Energy loss của Rao et al., ICCV 2023).
+
+`model.dilate_last_stage: true` (chỉ ResNet-50) cho CAM 14×14 thay vì 7×7 mà không thêm tham số. Các giá trị mặc định giữ nguyên hành vi của các run đã có.
+
+### ViT-GAP
+
+`vit_b_16_gap` ([`src/models/vit_gap.py`](src/models/vit_gap.py)) giữ backbone ViT-B/16 ImageNet nhưng phân loại bằng trung bình các patch token thay vì CLS token. CAM 14×14 = head áp lên từng patch token, logits = trung bình CAM, nên `L_loc`, Grad-CAM và các metric dùng y như CNN. Đây là kiến trúc khác `vit_b_16` (head CLS): ablation phải dùng cặp `configs/vit_gap_baseline.yaml` (λ=0) và `configs/vit_gap_location.yaml`.
+
+## Chạy và phân tích RQ1/RQ2 trên Modal
+
+```bash
+# train (mỗi (model, λ, seed) một container); MODAL_GPU mặc định L4, các run hiện tại dùng A10G
+MODAL_GPU=A10G ~/.venvs/modal/bin/python -m modal run --detach scripts/modal_sweep.py::sweep --model vit_b_16 --prefix vit --lambdas 0 --seeds 42,43
+# đánh giá external test: classification, Grad-CAM (+prior), occlusion + box-occlusion; config đọc lại từ res/config.json
+MODAL_GPU=A10G ~/.venvs/modal/bin/python -m modal run --detach scripts/modal_sweep.py::evaluate_runs --runs r50_base_s42,r50_l1_s42
+# tải về và phân tích
+~/.venvs/modal/bin/python -m modal volume get cxr-runs / outputs/modal_runs/volume
+python scripts/rq_analysis.py outputs/modal_runs/volume --output-dir outputs/rq
+```
+
+`rq_analysis.py` ghép run theo model/λ/seed trong config và xuất:
+
+- **RQ1** (`rq1_<method>.md`): bảng theo kiến trúc (baseline λ=0), Spearman *trong từng finding* giữa AUROC/AUPRC và Pointing/EIB/EIB−prior (CI bootstrap theo finding), và bảng can thiệp (λ>0 trừ baseline cùng kiến trúc + seed).
+- **RQ2** (`rq2.md`): so sánh paired baseline vs λ>0 với CI bootstrap theo ảnh cho Grad-CAM, occlusion, box-occlusion và macro-AUROC, kèm bảng theo finding.
+
+## Classification loss cho dữ liệu mất cân bằng
+
+Trong `training.loss` (xem chú thích ở `configs/default.yaml`):
+
+- `name`: `weighted_bce`, `sigmoid_focal` hoặc `asymmetric` (ASL, Ridnik et al. 2021: `gamma_pos`, `gamma_neg`, `clip`).
+- `positive_weight.mode`: `raw_ratio`, `sqrt_ratio`, `sqrt_ratio_capped`, `class_balanced` (Cui et al. 2019, cần `beta`) hoặc `none`.
+- `label_policy` (chỉ khi train): `majority` (mặc định), `ignore_minority` (bỏ cặp ảnh–finding chỉ 1/3 reader đánh dấu) hoặc `soft_votes` (target = số reader / 3). Số vote đọc từ `data.annotation_csv`.
+- `training.prior_bias_init: true`: khởi tạo bias của head theo tỉ lệ dương (đã tính `pos_weight`).
+
+Các config `configs/loss_r50_*.yaml` là ma trận ablation trên ResNet-50 (λ=0), giữ protocol của lưới λ. Giá trị mặc định giữ nguyên loss protocol của các checkpoint đã có.
 
 ## Luồng xử lý
 

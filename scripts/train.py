@@ -19,6 +19,7 @@ from src.data.protocol import (
     validate_checkpoint_protocol,
 )
 from src.losses.classification_loss import (
+    prior_logit_bias,
     build_classification_loss,
     validate_checkpoint_loss_protocol,
 )
@@ -27,7 +28,9 @@ from src.metrics.classification import (
     compute_classification_metrics,
     optimize_f1_thresholds,
 )
-from src.models.factory import build_model
+from src.losses.localization_loss import ACTIVATION_TRANSFORMS, MASK_TYPES
+from src.models.factory import build_model, classifier_head, model_kwargs_from_config
+from src.data.reader_votes import build_reader_vote_table
 from src.training.engine import run_epoch
 from src.utils.checkpoint import (
     load_checkpoint,
@@ -231,11 +234,32 @@ def main():
             "Location-aware loss requires masks, which are incompatible "
             "with image-only augmentation; set use_augmentation: false"
         )
-    localization_protocol = (
-        {"lambda_loc": loc_weight, "mask": "union_masks"}
-        if use_loc
-        else None
-    )
+    loc_mask_type = str(loc_config.get("mask", "union"))
+    loc_transform = str(loc_config.get("activation", "softplus"))
+    if loc_mask_type not in MASK_TYPES:
+        raise ValueError(f"localization_loss.mask must be one of {MASK_TYPES}")
+    if loc_transform not in ACTIVATION_TRANSFORMS:
+        raise ValueError(
+            f"localization_loss.activation must be one of {ACTIVATION_TRANSFORMS}"
+        )
+    localization_protocol = None
+    if use_loc:
+        localization_protocol = {"lambda_loc": loc_weight, "mask": "union_masks"}
+        # Chỉ ghi khóa mới khi khác mặc định, để checkpoint cũ vẫn resume được.
+        if loc_mask_type != "union":
+            localization_protocol["mask"] = f"{loc_mask_type}_masks"
+        if loc_transform != "softplus":
+            localization_protocol["activation"] = loc_transform
+    model_kwargs = model_kwargs_from_config(config["model"])
+
+    label_policy = training_config["loss"].get("label_policy", "majority")
+    num_readers = int(config["data"]["expected_readers"])
+    train_reader_votes = None
+    if label_policy != "majority":
+        train_ids = pd.read_csv(config["data"]["train_manifest_path"])["image_id"]
+        train_reader_votes = build_reader_vote_table(
+            config["data"]["annotation_csv"], findings, image_ids=train_ids
+        )
 
     train_dataset = CXRDataset(
         manifest_path=config["data"]["train_manifest_path"],
@@ -246,6 +270,8 @@ def main():
         std=preprocessing_config["std"],
         load_masks=use_loc,
         augmentation_config=train_augmentation,
+        reader_votes=train_reader_votes,
+        positive_votes=int(config["data"]["positive_votes"]),
     )
 
     val_dataset = CXRDataset(
@@ -300,6 +326,7 @@ def main():
         model_name=config["model"]["name"],
         num_classes=len(findings),
         pretrained=config["model"]["pretrained"],
+        **model_kwargs_from_config(config["model"]),
     ).to(device)
     amp_enabled = bool(
         training_config["use_amp"] and device.type == "cuda"
@@ -319,6 +346,14 @@ def main():
             loss_config=training_config["loss"],
         )
     )
+    prior_bias_init = bool(training_config.get("prior_bias_init", False))
+    if prior_bias_init:
+        # Với ASL/focal, pos_weight chỉ nhân phần dương nên vẫn dùng làm xấp xỉ p_eff.
+        bias = prior_logit_bias(train_labels, pos_weight.detach().cpu().numpy())
+        head = classifier_head(model, config["model"]["name"])
+        with torch.no_grad():
+            head.bias.copy_(torch.as_tensor(bias, dtype=head.bias.dtype, device=head.bias.device))
+
     training_protocol = build_training_protocol(
         training_config=training_config,
         augmentation_protocol=augmentation_protocol,
@@ -326,6 +361,10 @@ def main():
         amp_enabled=amp_enabled,
         localization_protocol=localization_protocol,
     )
+    if prior_bias_init:
+        training_protocol["prior_bias_init"] = True
+    if model_kwargs["dilate_last_stage"]:
+        training_protocol["dilate_last_stage"] = True
 
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -437,6 +476,10 @@ def main():
             collect_predictions=False,
             model_name=config["model"]["name"],
             loc_weight=loc_weight,
+            loc_mask_type=loc_mask_type,
+            loc_transform=loc_transform,
+            label_policy=label_policy,
+            num_readers=num_readers,
             description=(
                 f"Epoch {epoch + 1:02d}/{training_config['epochs']:02d} — train"
             ),
@@ -454,6 +497,10 @@ def main():
             collect_predictions=True,
             model_name=config["model"]["name"],
             loc_weight=loc_weight,
+            loc_mask_type=loc_mask_type,
+            loc_transform=loc_transform,
+            label_policy=label_policy,
+            num_readers=num_readers,
             description=(
                 f"Epoch {epoch + 1:02d}/{training_config['epochs']:02d} — val"
             ),

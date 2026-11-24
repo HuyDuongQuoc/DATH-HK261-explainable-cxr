@@ -28,7 +28,7 @@ from src.metrics.classification import (
     resolve_decision_thresholds,
     threshold_mapping,
 )
-from src.models.factory import build_model
+from src.models.factory import build_model, model_kwargs_from_config
 from src.training.engine import run_epoch
 from src.utils.checkpoint import load_checkpoint
 from src.utils.checksums import file_sha256
@@ -152,6 +152,7 @@ def main():
         model_name=config["model"]["name"],
         num_classes=len(findings),
         pretrained=False,
+        **model_kwargs_from_config(config["model"]),
     ).to(device)
     checkpoint = load_checkpoint(
         checkpoint_path=args.checkpoint,
