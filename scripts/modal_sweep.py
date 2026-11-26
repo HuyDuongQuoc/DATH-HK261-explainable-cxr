@@ -102,6 +102,8 @@ def _write_config(config_dir: Path, model_name: str, lam: float, seed: int, over
     config["seed"] = int(seed)
     config["model"]["pretrained"] = True
     training = config["training"]
+    # Mặc định của protocol Modal; config overlay (vd vit_ft.yaml) có thể ghi đè
+    # epochs/patience/learning_rate vì run.yaml được merge sau default.yaml.
     training.update(
         batch_size=16,
         validation_batch_size=32,
@@ -143,7 +145,8 @@ def run_name(prefix: str, lam: float, seed: int) -> str:
     gpu=GPU,
     cpu=8,
     memory=24576,
-    timeout=2 * 3600,
+    # ViT với công thức fine-tune (30 epoch) có thể vượt 2 giờ; run bị ngắt sẽ resume từ last.pt
+    timeout=8 * 3600,
     volumes={DATA_ROOT: data_volume, RUNS_ROOT: runs_volume},
 )
 def train_one(model_name: str, lam: float, seed: int, prefix: str, overlay: str = ""):

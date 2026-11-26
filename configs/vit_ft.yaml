@@ -1,0 +1,9 @@
+# ViT-B/16 (head CLS) với công thức fine-tune riêng cho ViT: lr nhỏ, weight decay lớn, train lâu hơn.
+# Công thức chung của CNN (lr 1e-4, 12 epoch) làm ViT không hội tụ (test AUROC ~0,64).
+model:
+  name: vit_b_16
+training:
+  learning_rate: 2.0e-5
+  weight_decay: 0.05
+  epochs: 30
+  patience: 5

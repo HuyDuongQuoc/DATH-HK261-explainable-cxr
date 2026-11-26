@@ -17,7 +17,7 @@ from src.data.protocol import (
     validate_checkpoint_protocol,
 )
 from src.metrics.localization_stats import bootstrap_macro_ci
-from src.metrics.localization import iou_column, select_iou_threshold
+from src.metrics.localization import DEFAULT_IOU_THRESHOLDS, iou_column, select_iou_threshold
 from src.models.factory import build_model, model_kwargs_from_config
 from src.utils.checkpoint import load_checkpoint
 from src.utils.config import load_config
@@ -100,6 +100,11 @@ def main():
         help="File cache prior giải phẫu (trung bình union mask train theo finding).",
     )
     parser.add_argument("--no-prior", action="store_true")
+    parser.add_argument(
+        "--test-only",
+        action="store_true",
+        help="Bỏ qua validation (cần --iou-threshold và --split test); tiết kiệm GPU khi chỉ cần số test.",
+    )
     parser.add_argument("--n-boot", type=int, default=1000)
     args = parser.parse_args()
 
@@ -166,23 +171,30 @@ def main():
         "max_images": args.max_images,
     }
 
-    # 1) Validation: chọn threshold IoU
-    val_loader = build_loader(
-        config,
-        findings,
-        Path(data_config["processed_root"]),
-        Path(data_config["val_manifest_path"]),
-    )
-    val_records = collect_localization_records(
-        model, model_name, val_loader, findings, device, **record_kwargs,
-    )
-    if val_records.empty:
-        raise ValueError("No valid (image, class) pairs in validation")
-    selected_threshold, mean_iou_by_threshold = select_iou_threshold(val_records)
+    if args.test_only and (args.iou_threshold is None or args.split != "test"):
+        raise ValueError("--test-only requires --iou-threshold and --split test")
+
+    # 1) Validation: chọn threshold IoU (bỏ qua nếu --test-only)
+    selected_threshold, mean_iou_by_threshold = None, None
+    splits = {}
+    if not args.test_only:
+        val_loader = build_loader(
+            config,
+            findings,
+            Path(data_config["processed_root"]),
+            Path(data_config["val_manifest_path"]),
+        )
+        val_records = collect_localization_records(
+            model, model_name, val_loader, findings, device, **record_kwargs,
+        )
+        if val_records.empty:
+            raise ValueError("No valid (image, class) pairs in validation")
+        selected_threshold, mean_iou_by_threshold = select_iou_threshold(val_records)
+        splits["val"] = (val_records, "validation")
     if args.iou_threshold is not None:
         threshold = float(args.iou_threshold)
         threshold_source = "fixed (--iou-threshold)"
-        if iou_column(threshold) not in val_records.columns:
+        if threshold not in [float(t) for t in DEFAULT_IOU_THRESHOLDS]:
             raise ValueError("--iou-threshold must be one of DEFAULT_IOU_THRESHOLDS")
     else:
         threshold = selected_threshold
@@ -201,9 +213,8 @@ def main():
         "prior": None if priors is None else str(args.prior_cache),
         "validation_mean_iou_by_threshold": mean_iou_by_threshold,
         "max_images": args.max_images,
+        "test_only": args.test_only,
     }
-
-    splits = {"val": (val_records, "validation")}
 
     # 2) Test: dùng threshold đã cố định
     if args.split == "test":

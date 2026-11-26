@@ -106,6 +106,21 @@ def intervention_table(table):
 def to_markdown(arch, corr, intervention, split, method):
     lines = [f"# RQ1 — classification vs localization ({split}, {method})", ""]
     lines += ["## Theo kiến trúc (baseline λ=0, macro theo finding)", "", markdown_table(arch), ""]
+    notes = []
+    if {"eib_mean", "eib_minus_prior_mean"} <= set(arch.columns):
+        prior_eib = (arch["eib_mean"] - arch["eib_minus_prior_mean"]).mean()
+        notes.append(
+            f"- Prior giải phẫu (trung bình union mask train, không nhìn ảnh) có EIB ≈ {prior_eib:.3f}. "
+            "`eib_minus_prior` < 0 nghĩa là explanation của model tập trung vào box kém hơn bản đồ "
+            "vị trí cố định này."
+        )
+    if method == "gradcam":
+        notes.append(
+            "- Pointing của Grad-CAM tính trên lưới gốc của model (CNN 7×7, ViT 14×14) nên không "
+            "hoàn toàn so được giữa CNN và ViT; occlusion dùng cùng lưới 7×7 cho mọi model."
+        )
+    if notes:
+        lines += ["Lưu ý:", "", *notes, ""]
     lines += [
         "## Tương quan Spearman",
         "",

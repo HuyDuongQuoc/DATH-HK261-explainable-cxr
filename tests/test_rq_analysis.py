@@ -130,3 +130,19 @@ def test_cli_end_to_end(runs_root, tmp_path):
     for name in ("runs.csv", "rq1_gradcam.md", "rq1_occlusion_correlation.csv", "rq2.md", "rq2_paired.csv"):
         assert (out / name).is_file(), name
     assert "loss_r50_asl" not in (out / "runs.csv").read_text()
+
+
+def test_normalized_drops_remove_logit_scale():
+    rng = np.random.default_rng(0)
+    logit = rng.normal(size=50)
+    base = pd.DataFrame({
+        "image_id": [f"i{k}" for k in range(50)], "finding": "A",
+        "logit": logit, "drop_inside": 0.5 * logit + 1.0, "drop_outside": 0.1 * logit,
+    })
+    scaled = base.assign(**{c: base[c] * 4 for c in ("logit", "drop_inside", "drop_outside")})
+    a, b = rq2.add_normalized_drops(base), rq2.add_normalized_drops(scaled)
+    assert np.allclose(a["drop_inside_norm"], b["drop_inside_norm"])
+    assert np.allclose(a["drop_outside_norm"], b["drop_outside_norm"])
+    assert rq2.add_normalized_drops(base.drop(columns="logit")).columns.tolist() == [
+        "image_id", "finding", "drop_inside", "drop_outside"
+    ]

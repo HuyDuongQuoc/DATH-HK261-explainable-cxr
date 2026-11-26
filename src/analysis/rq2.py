@@ -27,8 +27,24 @@ from src.metrics.localization_stats import (
 RECORD_METRICS = {
     "gradcam": ("pointing_hit", "eib", "eib_over_area", "eib_minus_prior", "iou_mean"),
     "occlusion": ("pointing_hit", "eib", "eib_over_area", "eib_minus_prior", "iou_mean",
-                  "drop_inside", "drop_outside"),
+                  "drop_inside", "drop_outside", "drop_inside_norm", "drop_outside_norm"),
 }
+
+
+def add_normalized_drops(records):
+    """
+    drop_* tính bằng logit thô nên phụ thuộc thang logit của từng model (L_loc làm
+    thang này thay đổi). Chia cho độ lệch chuẩn logit của chính run đó trong cùng
+    finding để so sánh paired không bị lệch bởi thang.
+    """
+    if records is None or "logit" not in records.columns:
+        return records
+    records = records.copy()
+    scale = records.groupby("finding")["logit"].transform("std").replace(0, float("nan"))
+    for column in ("drop_inside", "drop_outside"):
+        if column in records.columns:
+            records[f"{column}_norm"] = records[column] / scale
+    return records
 
 
 def _prediction_findings(path):
@@ -67,8 +83,8 @@ def paired_table(runs, findings=None, n_boot=1000, seed=0, split="test"):
             )
             rows.append(context | {"method": "classification"} | result)
         for method, metrics in RECORD_METRICS.items():
-            rec_a = localization_records(base["path"], split, method)
-            rec_b = localization_records(guided["path"], split, method)
+            rec_a = add_normalized_drops(localization_records(base["path"], split, method))
+            rec_b = add_normalized_drops(localization_records(guided["path"], split, method))
             if rec_a is None or rec_b is None:
                 continue
             for metric in metrics:
@@ -112,6 +128,15 @@ def to_markdown(paired, per_finding):
             "Grad-CAM lớp cuối trùng CAM mà L_loc tối ưu; kết luận về localization nên dựa "
             "thêm vào occlusion và box-occlusion (`drop_inside`, `drop_outside`). "
             "`eib_minus_prior` so với heatmap prior giải phẫu không nhìn ảnh.",
+            "",
+            "Lưu ý khi đọc:",
+            "",
+            "- `drop_*` là mức giảm logit thô; L_loc đổi thang logit của model nên dùng "
+            "`drop_*_norm` (chia độ lệch chuẩn logit của chính run trong cùng finding) để so sánh.",
+            "- `drop_outside` che toàn bộ ảnh ngoài box, ảnh thu được lệch phân phối rất mạnh; "
+            "nó tăng không có nghĩa localization kém đi. Bằng chứng hành vi chính là `drop_inside(_norm)`.",
+            "- Prior cố định giữa hai run nên Δ`eib_minus_prior` luôn bằng Δ`eib`; cột này chỉ có ý "
+            "nghĩa ở giá trị a/b (âm = kém hơn bản đồ vị trí trung bình).",
             "",
             markdown_table(paired[[c for c in cols if c in paired.columns]], index=False),
             "",

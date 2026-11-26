@@ -15,6 +15,7 @@ các run ablation loss (tên bắt đầu bằng "loss_") để mọi run cùng 
 """
 
 import argparse
+from fnmatch import fnmatch
 from pathlib import Path
 import sys
 
@@ -32,6 +33,10 @@ def main():
     parser.add_argument("--output-dir", default="outputs/rq")
     parser.add_argument("--split", choices=("test", "val"), default="test")
     parser.add_argument("--include-loss-ablation", action="store_true")
+    parser.add_argument(
+        "--exclude", default="",
+        help="Glob tên run cần bỏ, phân tách bằng dấu phẩy (vd 'vit_base_*,vitgap_*' cho run ViT train hỏng)",
+    )
     parser.add_argument("--n-boot", type=int, default=1000)
     args = parser.parse_args()
 
@@ -40,6 +45,11 @@ def main():
         raise SystemExit(f"Không tìm thấy run có res/config.json trong {args.root}")
     if not args.include_loss_ablation:
         runs = runs[~runs["run"].str.startswith("loss_")]
+    excluded = [p.strip() for p in args.exclude.split(",") if p.strip()]
+    if excluded:
+        drop = runs["run"].apply(lambda name: any(fnmatch(name, p) for p in excluded))
+        print(f"Bỏ {int(drop.sum())} run theo --exclude: {runs.loc[drop, 'run'].tolist()}")
+        runs = runs[~drop]
     if runs["loss"].nunique() > 1:
         print("CẢNH BÁO: các run dùng classification loss khác nhau:")
         print(runs.groupby("loss")["run"].apply(list).to_string())
