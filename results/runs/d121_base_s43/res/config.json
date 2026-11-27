@@ -1,0 +1,110 @@
+{
+  "seed": 43,
+  "data": {
+    "raw_root": "data/raw",
+    "annotation_csv": "/app/data/raw/train.csv",
+    "protocol_id": "vindr_s8515_exttest_v1",
+    "protocol_dir": "/app/data/protocols/vindr_s8515_exttest_v1",
+    "validation_ids_path": "data/protocols/vindr_s8515_exttest_v1/validation_ids.csv",
+    "train_manifest_path": "/data/train.csv",
+    "val_manifest_path": "/data/val.csv",
+    "manifest_path": "data/processed/manifest.csv",
+    "consensus_boxes_path": "data/processed/consensus_boxes.csv",
+    "metadata_path": "data/processed/metadata.json",
+    "processed_root": "/data/trainval",
+    "external_test": {
+      "annotation_csv": "/app/data/raw/test.csv",
+      "image_dir": "data/raw/test",
+      "processed_root": "/data/test",
+      "manifest_path": "/data/test.csv",
+      "reader_id": "consensus"
+    },
+    "target_findings": [
+      "Aortic enlargement",
+      "Atelectasis",
+      "Calcification",
+      "Cardiomegaly",
+      "Consolidation",
+      "ILD",
+      "Infiltration",
+      "Lung Opacity",
+      "Nodule/Mass",
+      "Other lesion",
+      "Pleural effusion",
+      "Pleural thickening",
+      "Pneumothorax",
+      "Pulmonary fibrosis"
+    ],
+    "expected_readers": 3,
+    "positive_votes": 2,
+    "minority_policy": "negative",
+    "train_fraction": 0.85,
+    "val_fraction": 0.15,
+    "split_assignment_sha256": "bc9d6032e28bf3dda1992bf3c37617d05dce620da77cf6529face77835f94702"
+  },
+  "preprocessing": {
+    "image_size": 224,
+    "image_resize_mode": "bilinear",
+    "soft_mask_resize_mode": "area",
+    "grayscale_to_rgb": true,
+    "mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "std": [
+      0.229,
+      0.224,
+      0.225
+    ],
+    "use_augmentation": false,
+    "augmentation": {
+      "rotation_degrees": 7.0,
+      "translate_fraction": 0.03,
+      "scale": [
+        0.95,
+        1.05
+      ],
+      "intensity_probability": 0.5,
+      "brightness": 0.1,
+      "contrast": 0.1
+    },
+    "use_clahe": false
+  },
+  "model": {
+    "name": "densenet121",
+    "pretrained": true,
+    "dilate_last_stage": false
+  },
+  "training": {
+    "batch_size": 16,
+    "validation_batch_size": 32,
+    "num_workers": 6,
+    "persistent_workers": true,
+    "prefetch_factor": 2,
+    "use_amp": true,
+    "show_progress": false,
+    "epochs": 12,
+    "learning_rate": 0.0001,
+    "weight_decay": 0.0001,
+    "monitor": "macro_auroc",
+    "patience": 3,
+    "min_delta": 0.0001,
+    "prior_bias_init": false,
+    "loss": {
+      "name": "weighted_bce",
+      "positive_weight": {
+        "mode": "raw_ratio",
+        "max_value": null
+      }
+    },
+    "amp_active": true,
+    "device": "cuda"
+  },
+  "localization_loss": {
+    "enabled": false,
+    "lambda_loc": 0.25,
+    "mask": "union",
+    "activation": "softplus"
+  }
+}

@@ -1,0 +1,220 @@
+{
+  "per_class": [
+    {
+      "finding": "Aortic enlargement",
+      "threshold": 0.81298828125,
+      "auroc": 0.9602923831305681,
+      "average_precision": 0.8124285713030985,
+      "precision": 0.7513368983957219,
+      "recall": 0.7982954545454546,
+      "f1": 0.7741046831955923,
+      "positive_count": 352,
+      "negative_count": 1898
+    },
+    {
+      "finding": "Atelectasis",
+      "threshold": 0.99560546875,
+      "auroc": 0.9409598214285715,
+      "average_precision": 0.1419578467911139,
+      "precision": 0.23529411764705882,
+      "recall": 0.4,
+      "f1": 0.2962962962962963,
+      "positive_count": 10,
+      "negative_count": 2240
+    },
+    {
+      "finding": "Calcification",
+      "threshold": 0.9521484375,
+      "auroc": 0.8898968694290332,
+      "average_precision": 0.1877944702848986,
+      "precision": 0.2571428571428571,
+      "recall": 0.3333333333333333,
+      "f1": 0.2903225806451613,
+      "positive_count": 27,
+      "negative_count": 2223
+    },
+    {
+      "finding": "Cardiomegaly",
+      "threshold": 0.84765625,
+      "auroc": 0.978173908371177,
+      "average_precision": 0.8541466935767431,
+      "precision": 0.7992957746478874,
+      "recall": 0.8315018315018315,
+      "f1": 0.8150807899461401,
+      "positive_count": 273,
+      "negative_count": 1977
+    },
+    {
+      "finding": "Consolidation",
+      "threshold": 0.9326171875,
+      "auroc": 0.9649915372361609,
+      "average_precision": 0.16492692718450302,
+      "precision": 0.2127659574468085,
+      "recall": 0.5555555555555556,
+      "f1": 0.3076923076923077,
+      "positive_count": 18,
+      "negative_count": 2232
+    },
+    {
+      "finding": "ILD",
+      "threshold": 0.94873046875,
+      "auroc": 0.9706956131274282,
+      "average_precision": 0.2772903083052526,
+      "precision": 0.36,
+      "recall": 0.391304347826087,
+      "f1": 0.375,
+      "positive_count": 23,
+      "negative_count": 2227
+    },
+    {
+      "finding": "Infiltration",
+      "threshold": 0.92919921875,
+      "auroc": 0.9702739341239115,
+      "average_precision": 0.33633227982376884,
+      "precision": 0.36764705882352944,
+      "recall": 0.6756756756756757,
+      "f1": 0.47619047619047616,
+      "positive_count": 37,
+      "negative_count": 2213
+    },
+    {
+      "finding": "Lung Opacity",
+      "threshold": 0.908203125,
+      "auroc": 0.9391818918189181,
+      "average_precision": 0.49697531031513514,
+      "precision": 0.4772727272727273,
+      "recall": 0.5121951219512195,
+      "f1": 0.49411764705882355,
+      "positive_count": 82,
+      "negative_count": 2168
+    },
+    {
+      "finding": "Nodule/Mass",
+      "threshold": 0.88427734375,
+      "auroc": 0.9036719939117198,
+      "average_precision": 0.2094739258912387,
+      "precision": 0.22641509433962265,
+      "recall": 0.4,
+      "f1": 0.2891566265060241,
+      "positive_count": 60,
+      "negative_count": 2190
+    },
+    {
+      "finding": "Other lesion",
+      "threshold": 0.86669921875,
+      "auroc": 0.9020832470490785,
+      "average_precision": 0.19628278243399142,
+      "precision": 0.19696969696969696,
+      "recall": 0.4727272727272727,
+      "f1": 0.27807486631016043,
+      "positive_count": 55,
+      "negative_count": 2195
+    },
+    {
+      "finding": "Pleural effusion",
+      "threshold": 0.8603515625,
+      "auroc": 0.9712809866894615,
+      "average_precision": 0.6670988185347703,
+      "precision": 0.6,
+      "recall": 0.6631578947368421,
+      "f1": 0.63,
+      "positive_count": 95,
+      "negative_count": 2155
+    },
+    {
+      "finding": "Pleural thickening",
+      "threshold": 0.8701171875,
+      "auroc": 0.9382069959973149,
+      "average_precision": 0.533646788585984,
+      "precision": 0.48427672955974843,
+      "recall": 0.5789473684210527,
+      "f1": 0.5273972602739726,
+      "positive_count": 133,
+      "negative_count": 2117
+    },
+    {
+      "finding": "Pneumothorax",
+      "threshold": 0.921875,
+      "auroc": 0.9778378679750224,
+      "average_precision": 0.1693622455511159,
+      "precision": 0.18518518518518517,
+      "recall": 0.625,
+      "f1": 0.2857142857142857,
+      "positive_count": 8,
+      "negative_count": 2242
+    },
+    {
+      "finding": "Pulmonary fibrosis",
+      "threshold": 0.9013671875,
+      "auroc": 0.9317605916949516,
+      "average_precision": 0.5646346777318466,
+      "precision": 0.5114942528735632,
+      "recall": 0.5816993464052288,
+      "f1": 0.5443425076452599,
+      "positive_count": 153,
+      "negative_count": 2097
+    }
+  ],
+  "macro_auroc": 0.9456648315702371,
+  "macro_average_precision": 0.4008822604509615,
+  "macro_precision": 0.40464973930745757,
+  "macro_recall": 0.5585280859056824,
+  "macro_f1": 0.4559635948196072,
+  "val_loss": 0.6066140206986004,
+  "checkpoint_epoch": 4,
+  "checkpoint_file": "best.pt",
+  "selection_metric": "macro_auroc",
+  "selection_score": 0.9456648315702371,
+  "decision_thresholds": {
+    "Aortic enlargement": 0.81298828125,
+    "Atelectasis": 0.99560546875,
+    "Calcification": 0.9521484375,
+    "Cardiomegaly": 0.84765625,
+    "Consolidation": 0.9326171875,
+    "ILD": 0.94873046875,
+    "Infiltration": 0.92919921875,
+    "Lung Opacity": 0.908203125,
+    "Nodule/Mass": 0.88427734375,
+    "Other lesion": 0.86669921875,
+    "Pleural effusion": 0.8603515625,
+    "Pleural thickening": 0.8701171875,
+    "Pneumothorax": 0.921875,
+    "Pulmonary fibrosis": 0.9013671875
+  },
+  "threshold_strategy": "per_class_max_f1",
+  "threshold_validation_manifest_sha256": "9521367c0795b8d8f58ee9142867828cf03715c98bb7b2703bd912bd0aa825d6",
+  "amp_enabled": true,
+  "loss_protocol": {
+    "name": "weighted_bce",
+    "positive_weight": {
+      "mode": "raw_ratio",
+      "max_value": null
+    }
+  },
+  "training_protocol": {
+    "batch_size": 16,
+    "validation_batch_size": 32,
+    "num_workers": 6,
+    "persistent_workers": true,
+    "prefetch_factor": 2,
+    "amp_enabled": true,
+    "cudnn_benchmark": false,
+    "cudnn_deterministic": true,
+    "augmentation_protocol": {
+      "enabled": false,
+      "config": null
+    },
+    "loss_protocol": {
+      "name": "weighted_bce",
+      "positive_weight": {
+        "mode": "raw_ratio",
+        "max_value": null
+      }
+    },
+    "monitor": "macro_auroc"
+  },
+  "split_assignment_sha256": "bc9d6032e28bf3dda1992bf3c37617d05dce620da77cf6529face77835f94702",
+  "data_protocol_id": "vindr_s8515_exttest_v1",
+  "val_seconds": 2.0695241779999947,
+  "val_images_per_second": 1087.2064332074722
+}

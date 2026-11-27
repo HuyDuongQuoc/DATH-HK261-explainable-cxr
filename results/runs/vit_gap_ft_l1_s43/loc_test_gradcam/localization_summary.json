@@ -1,0 +1,66 @@
+{
+  "model": "vit_b_16_gap",
+  "checkpoint": "/kaggle/tmp/bundle/runs/vit_gap_ft_l1_s43/ckpt/best.pt",
+  "iou_threshold": 0.3,
+  "iou_threshold_selected_on": "fixed (--iou-threshold)",
+  "iou_threshold_best_on_validation": null,
+  "method": "gradcam",
+  "occlusion": null,
+  "box_occlusion": false,
+  "prior": "/kaggle/tmp/bundle/priors/train_union_prior.npz",
+  "validation_mean_iou_by_threshold": null,
+  "max_images": null,
+  "test_only": true,
+  "test": {
+    "split": "external_test",
+    "n_pairs": 2053,
+    "macro_pointing_hit_rate": 0.34213266823234073,
+    "macro_eib": 0.21160709154124077,
+    "macro_iou": 0.16767798886720622,
+    "iou_column": "iou@0.30",
+    "macro": {
+      "pointing_hit_rate": 0.34213266823234073,
+      "eib": 0.21160709154124077,
+      "box_area": 0.03931564087641746,
+      "eib_over_area": 6.272706200526491,
+      "iou_mean": 0.16081147346276883,
+      "prior_eib": 0.14708792855400257,
+      "prior_hit": 0.2779436413825143,
+      "eib_minus_prior": 0.06451916298723821,
+      "prior_corr": 0.5559871182509971,
+      "iou": 0.16767798886720622
+    },
+    "bootstrap_ci_by_image": {
+      "pointing_hit": {
+        "estimate": 0.34213266823234073,
+        "ci_low": 0.3247124113417568,
+        "ci_high": 0.36225237485033196,
+        "n_boot": 1000
+      },
+      "eib": {
+        "estimate": 0.21160709154124077,
+        "ci_low": 0.2037361637104561,
+        "ci_high": 0.220633480078993,
+        "n_boot": 1000
+      },
+      "eib_over_area": {
+        "estimate": 6.272706200526491,
+        "ci_low": 5.951110482422307,
+        "ci_high": 6.598394753568864,
+        "n_boot": 1000
+      },
+      "eib_minus_prior": {
+        "estimate": 0.06451916298723821,
+        "ci_low": 0.058204453016265645,
+        "ci_high": 0.07223676326260217,
+        "n_boot": 1000
+      },
+      "iou_mean": {
+        "estimate": 0.16081147346276883,
+        "ci_low": 0.1543250071605412,
+        "ci_high": 0.16746906023981895,
+        "n_boot": 1000
+      }
+    }
+  }
+}

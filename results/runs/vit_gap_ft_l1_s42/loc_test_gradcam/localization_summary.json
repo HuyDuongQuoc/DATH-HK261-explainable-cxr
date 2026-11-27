@@ -1,0 +1,66 @@
+{
+  "model": "vit_b_16_gap",
+  "checkpoint": "/kaggle/tmp/bundle/runs/vit_gap_ft_l1_s42/ckpt/best.pt",
+  "iou_threshold": 0.3,
+  "iou_threshold_selected_on": "fixed (--iou-threshold)",
+  "iou_threshold_best_on_validation": null,
+  "method": "gradcam",
+  "occlusion": null,
+  "box_occlusion": false,
+  "prior": "/kaggle/tmp/bundle/priors/train_union_prior.npz",
+  "validation_mean_iou_by_threshold": null,
+  "max_images": null,
+  "test_only": true,
+  "test": {
+    "split": "external_test",
+    "n_pairs": 2053,
+    "macro_pointing_hit_rate": 0.29139190494619305,
+    "macro_eib": 0.19157621448805773,
+    "macro_iou": 0.14080688819171433,
+    "iou_column": "iou@0.30",
+    "macro": {
+      "pointing_hit_rate": 0.29139190494619305,
+      "eib": 0.19157621448805773,
+      "box_area": 0.03931564087641746,
+      "eib_over_area": 5.767085500554122,
+      "iou_mean": 0.12834237346734015,
+      "prior_eib": 0.14708792855400257,
+      "prior_hit": 0.2779436413825143,
+      "eib_minus_prior": 0.04448828593405514,
+      "prior_corr": 0.5377223613534703,
+      "iou": 0.14080688819171433
+    },
+    "bootstrap_ci_by_image": {
+      "pointing_hit": {
+        "estimate": 0.29139190494619305,
+        "ci_low": 0.2708830783330796,
+        "ci_high": 0.3122907631573575,
+        "n_boot": 1000
+      },
+      "eib": {
+        "estimate": 0.19157621448805773,
+        "ci_low": 0.18153307804521512,
+        "ci_high": 0.20187245215639635,
+        "n_boot": 1000
+      },
+      "eib_over_area": {
+        "estimate": 5.767085500554122,
+        "ci_low": 5.437252713310907,
+        "ci_high": 6.117508866477343,
+        "n_boot": 1000
+      },
+      "eib_minus_prior": {
+        "estimate": 0.04448828593405514,
+        "ci_low": 0.037197615301960606,
+        "ci_high": 0.05252043474370075,
+        "n_boot": 1000
+      },
+      "iou_mean": {
+        "estimate": 0.12834237346734015,
+        "ci_low": 0.12172596092852926,
+        "ci_high": 0.13520160663764624,
+        "n_boot": 1000
+      }
+    }
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "model": "vit_b_16_gap",
+  "checkpoint": "/kaggle/tmp/bundle/runs/vit_gap_ft_base_s42/ckpt/best.pt",
+  "iou_threshold": 0.3,
+  "iou_threshold_selected_on": "fixed (--iou-threshold)",
+  "iou_threshold_best_on_validation": null,
+  "method": "gradcam",
+  "occlusion": null,
+  "box_occlusion": false,
+  "prior": "/kaggle/tmp/bundle/priors/train_union_prior.npz",
+  "validation_mean_iou_by_threshold": null,
+  "max_images": null,
+  "test_only": true,
+  "test": {
+    "split": "external_test",
+    "n_pairs": 2053,
+    "macro_pointing_hit_rate": 0.07664103926752351,
+    "macro_eib": 0.03871327996951784,
+    "macro_iou": 0.0334359487411018,
+    "iou_column": "iou@0.30",
+    "macro": {
+      "pointing_hit_rate": 0.07664103926752351,
+      "eib": 0.03871327996951784,
+      "box_area": 0.03931564087641746,
+      "eib_over_area": 0.8131617225119715,
+      "iou_mean": 0.031370186686487216,
+      "prior_eib": 0.14708792855400257,
+      "prior_hit": 0.2779436413825143,
+      "eib_minus_prior": -0.10837464858448474,
+      "prior_corr": 0.03797701860646134,
+      "iou": 0.0334359487411018
+    },
+    "bootstrap_ci_by_image": {
+      "pointing_hit": {
+        "estimate": 0.07664103926752351,
+        "ci_low": 0.06506330988019525,
+        "ci_high": 0.088609627469233,
+        "n_boot": 1000
+      },
+      "eib": {
+        "estimate": 0.03871327996951784,
+        "ci_low": 0.034665456404635295,
+        "ci_high": 0.043247222531615837,
+        "n_boot": 1000
+      },
+      "eib_over_area": {
+        "estimate": 0.8131617225119715,
+        "ci_low": 0.741962156730415,
+        "ci_high": 0.8964954255420905,
+        "n_boot": 1000
+      },
+      "eib_minus_prior": {
+        "estimate": -0.10837464858448474,
+        "ci_low": -0.11367446510653194,
+        "ci_high": -0.10313726207484601,
+        "n_boot": 1000
+      },
+      "iou_mean": {
+        "estimate": 0.031370186686487216,
+        "ci_low": 0.02848276769421877,
+        "ci_high": 0.03453530355892385,
+        "n_boot": 1000
+      }
+    }
+  }
+}

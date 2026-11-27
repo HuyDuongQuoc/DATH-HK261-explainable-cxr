@@ -1,0 +1,13 @@
+run,model,arch,lambda,seed,path
+d121_base_s42,densenet121,DenseNet-121,0.0,42,outputs/modal_runs/volume/d121_base_s42
+d121_base_s43,densenet121,DenseNet-121,0.0,43,outputs/modal_runs/volume/d121_base_s43
+d121_l1_s42,densenet121,DenseNet-121,1.0,42,outputs/modal_runs/volume/d121_l1_s42
+d121_l1_s43,densenet121,DenseNet-121,1.0,43,outputs/modal_runs/volume/d121_l1_s43
+r50_base_s42,resnet50,ResNet-50,0.0,42,outputs/modal_runs/volume/r50_base_s42
+r50_base_s43,resnet50,ResNet-50,0.0,43,outputs/modal_runs/volume/r50_base_s43
+r50_l1_s42,resnet50,ResNet-50,1.0,42,outputs/modal_runs/volume/r50_l1_s42
+r50_l1_s43,resnet50,ResNet-50,1.0,43,outputs/modal_runs/volume/r50_l1_s43
+vit_gap_ft_base_s42,vit_b_16_gap,ViT-B/16 (GAP),0.0,42,outputs/modal_runs/volume/vit_gap_ft_base_s42
+vit_gap_ft_base_s43,vit_b_16_gap,ViT-B/16 (GAP),0.0,43,outputs/modal_runs/volume/vit_gap_ft_base_s43
+vit_gap_ft_l1_s42,vit_b_16_gap,ViT-B/16 (GAP),1.0,42,outputs/modal_runs/volume/vit_gap_ft_l1_s42
+vit_gap_ft_l1_s43,vit_b_16_gap,ViT-B/16 (GAP),1.0,43,outputs/modal_runs/volume/vit_gap_ft_l1_s43

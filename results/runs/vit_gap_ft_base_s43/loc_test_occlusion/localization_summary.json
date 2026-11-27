@@ -1,0 +1,71 @@
+{
+  "model": "vit_b_16_gap",
+  "checkpoint": "/kaggle/tmp/bundle/runs/vit_gap_ft_base_s43/ckpt/best.pt",
+  "iou_threshold": 0.3,
+  "iou_threshold_selected_on": "fixed (--iou-threshold)",
+  "iou_threshold_best_on_validation": null,
+  "method": "occlusion",
+  "occlusion": {
+    "patch": 32,
+    "stride": 32
+  },
+  "box_occlusion": true,
+  "prior": "/kaggle/tmp/bundle/priors/train_union_prior.npz",
+  "validation_mean_iou_by_threshold": null,
+  "max_images": null,
+  "test_only": true,
+  "test": {
+    "split": "external_test",
+    "n_pairs": 2053,
+    "macro_pointing_hit_rate": 0.20329449457624688,
+    "macro_eib": 0.10302193536107104,
+    "macro_iou": 0.09451065803126003,
+    "iou_column": "iou@0.30",
+    "macro": {
+      "pointing_hit_rate": 0.20329449457624688,
+      "eib": 0.10302193536107104,
+      "box_area": 0.03931564087641746,
+      "eib_over_area": 2.961770033635797,
+      "iou_mean": 0.06421457147775986,
+      "prior_eib": 0.14708792855400257,
+      "prior_hit": 0.23345399625661448,
+      "eib_minus_prior": -0.04406599319293152,
+      "prior_corr": 0.14646198503956337,
+      "drop_inside": 0.4066158842978363,
+      "drop_outside": 0.44288465145250705,
+      "iou": 0.09451065803126003
+    },
+    "bootstrap_ci_by_image": {
+      "pointing_hit": {
+        "estimate": 0.20329449457624688,
+        "ci_low": 0.1811750354933016,
+        "ci_high": 0.22758098225842216,
+        "n_boot": 1000
+      },
+      "eib": {
+        "estimate": 0.10302193536107104,
+        "ci_low": 0.09591199337840994,
+        "ci_high": 0.11086070328841048,
+        "n_boot": 1000
+      },
+      "eib_over_area": {
+        "estimate": 2.961770033635797,
+        "ci_low": 2.7478462418272827,
+        "ci_high": 3.2053183279601503,
+        "n_boot": 1000
+      },
+      "eib_minus_prior": {
+        "estimate": -0.04406599319293152,
+        "ci_low": -0.051151974587852075,
+        "ci_high": -0.03694890305940177,
+        "n_boot": 1000
+      },
+      "iou_mean": {
+        "estimate": 0.06421457147775986,
+        "ci_low": 0.05911470160323869,
+        "ci_high": 0.06971103624301146,
+        "n_boot": 1000
+      }
+    }
+  }
+}
