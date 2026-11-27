@@ -1,8 +1,7 @@
 """
-Đánh giá external test cho các run đã train (thay cho modal_sweep.py::evaluate_runs
-khi không dùng được Modal), chạy được trên Kaggle hoặc bất kỳ máy có GPU nào.
+Evaluate trained runs on the external test set. Runs on Kaggle or any GPU machine.
 
-Bố cục bundle (tạo bởi scripts/make_eval_bundle.py):
+Bundle layout (built by scripts/make_eval_bundle.py):
     <bundle>/bundle_manifest.json
     <bundle>/code/{src,scripts,configs,data/protocols,data/raw/*.csv}
     <bundle>/data/{trainval/,test/,train.csv,val.csv,test.csv}
@@ -11,11 +10,11 @@ Bố cục bundle (tạo bởi scripts/make_eval_bundle.py):
 
     python <bundle>/code/scripts/kaggle_eval.py --bundle <bundle> --output /kaggle/working
 
-Kết quả cho mỗi run (bỏ qua bước đã có, nên chạy lại được):
+Outputs per run (finished steps are skipped, so the script can be re-run):
     <output>/runs/<run>/res/config.json
     <output>/runs/<run>/cls_test/              classification
-    <output>/runs/<run>/loc_test_gradcam/      Grad-CAM + prior, IoU 0.30, chỉ test
-    <output>/runs/<run>/loc_test_occlusion/    occlusion + box-occlusion, chỉ test
+    <output>/runs/<run>/loc_test_gradcam/      Grad-CAM + prior, IoU 0.30, test only
+    <output>/runs/<run>/loc_test_occlusion/    occlusion + box occlusion, test only
 """
 
 import argparse
@@ -33,7 +32,7 @@ COMMON_IOU_THRESHOLD = "0.30"
 
 
 def remap_saved_config(saved, data_root, code_root, num_workers=2):
-    """Trỏ đường dẫn trong config đã lưu (Modal/local) về bundle; số worker theo máy đánh giá."""
+    """Point the paths of a saved run config to the bundle; set workers for the evaluation machine."""
     training = saved.setdefault("training", {})
     training["num_workers"] = int(num_workers)
     training["persistent_workers"] = False
@@ -104,12 +103,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--bundle", required=True)
     parser.add_argument("--output", required=True)
-    parser.add_argument("--runs", default="", help="Danh sách run (mặc định: mọi run trong bundle)")
+    parser.add_argument("--runs", default="", help="Comma-separated runs (default: every run in the bundle)")
     parser.add_argument("--no-occlusion", action="store_true")
     parser.add_argument("--num-workers", type=int, default=2)
     parser.add_argument(
         "--smoke", type=int, default=None,
-        help="Chỉ localization trên N ảnh đầu, bỏ classification (kiểm tra đường dẫn/protocol trên CPU)",
+        help="Localization only, on the first N images, no classification (checks paths/protocol on CPU)",
     )
     args = parser.parse_args()
 
@@ -128,7 +127,7 @@ def main():
             failures.append(name)
             print(f"FAILED {name}: {error}", flush=True)
     shutil.rmtree(tmp_root, ignore_errors=True)
-    print(f"Xong: {len(failures)} run lỗi {failures}", flush=True)
+    print(f"Done: {len(failures)} failed runs {failures}", flush=True)
     if failures:
         sys.exit(1)
 

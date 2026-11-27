@@ -28,7 +28,7 @@ def test_low_inside_high_outside():
 
 def test_only_valid_pairs_are_averaged():
     mask = make_mask()
-    # class 0 nằm trong box (loss ~0), class 1 nằm ngoài (loss ~1)
+    # class 0 lies inside the box (loss ~0), class 1 outside (loss ~1)
     act = torch.cat([peaked(0, 0, classes=1), peaked(4, 4, classes=1)], dim=1)
     only_first = localization_loss(act, mask, torch.tensor([[True, False]]))
     only_second = localization_loss(act, mask, torch.tensor([[False, True]]))
@@ -58,7 +58,7 @@ def test_gradient_pushes_energy_into_box():
     act = torch.zeros(1, 1, 7, 7, requires_grad=True)
     loss = localization_loss(act, make_mask(classes=1), torch.tensor([[True]]))
     loss.backward()
-    # giảm loss = tăng activation trong box (grad âm), giảm ngoài box (grad dương)
+    # lowering the loss = raising activation inside the box (negative grad), lowering it outside (positive grad)
     assert act.grad[0, 0, 0, 0] < 0
     assert act.grad[0, 0, 6, 6] > 0
 
@@ -82,7 +82,7 @@ def test_matching_resolution_skips_interpolation():
     assert loss.item() < 0.01
 
 
-# ---------- tùy chọn mới: activation transform và loại mask ----------
+# ---------- options: activation transform and mask type ----------
 
 from src.losses.localization_loss import select_target_masks
 
@@ -92,7 +92,7 @@ def test_relu_transform_ignores_negative_activation():
     valid = torch.tensor([[True, True]])
     act = peaked(0, 0, low=-5.0)
     assert localization_loss(act, mask, valid, transform="relu").item() < 1e-6
-    # softplus vẫn tính phần âm ngoài box là năng lượng dương nhỏ
+    # softplus still counts negative activation outside the box as small positive energy
     assert localization_loss(act, mask, valid, transform="softplus").item() > 1e-4
 
 
@@ -103,7 +103,7 @@ def test_unknown_transform_raises():
 
 def _soft_batch():
     soft = torch.zeros(1, 2, 224, 224)
-    soft[:, :, :112, :112] = 1 / 3      # chỉ 1 reader
+    soft[:, :, :112, :112] = 1 / 3      # one reader only
     soft[:, :, :56, :56] = 2 / 3        # 2 reader
     union = (soft > 0).float()
     return {"soft_masks": soft, "union_masks": union, "mask_valid": torch.tensor([[True, True]])}
@@ -138,9 +138,9 @@ def test_union_mode_matches_previous_behaviour():
 
 def test_soft_mask_gives_partial_credit():
     batch = _soft_batch()
-    # cùng độ phân giải với mask để không có nội suy làm tràn năng lượng
+    # same resolution as the mask, so no interpolation spills energy
     act = torch.full((1, 2, 224, 224), -20.0)
-    act[:, :, :112, :112] = 20.0  # năng lượng phủ vùng 1/3 + 2/3 reader
+    act[:, :, :112, :112] = 20.0  # energy covers the 1/3 and 2/3 reader regions
     soft, valid = select_target_masks(batch, "soft")
     union, _ = select_target_masks(batch, "union")
     assert localization_loss(act, union, valid).item() < 0.01

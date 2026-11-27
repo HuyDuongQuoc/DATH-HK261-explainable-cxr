@@ -3,3 +3,4 @@ model:
 
 localization_loss:
   enabled: true
+  lambda_loc: 1.0

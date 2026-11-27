@@ -1,19 +1,18 @@
 """
-ViT-B/16 với head GAP trên patch token (ViT-GAP).
+ViT-B/16 with a GAP head over patch tokens (ViT-GAP).
 
-ViT gốc của torchvision phân loại bằng CLS token, nên không có feature map
-không gian gắn với class. ViT-GAP giữ nguyên backbone (kể cả CLS token, để dùng
-được position embedding 197 vị trí của trọng số ImageNet) nhưng bỏ đầu ra của
-CLS: head tuyến tính áp lên từng patch token rồi lấy trung bình,
+The torchvision ViT classifies from the CLS token, so it has no class-specific
+spatial feature map. ViT-GAP keeps the backbone (including the CLS token, so the
+197 ImageNet position embeddings still fit) but ignores the CLS output: a linear
+head is applied to every patch token and the results are averaged,
 
     activation[b, c, i, j] = W_c · token[b, i, j] + b_c     (grid 14x14)
     logits[b, c]           = mean_{i,j} activation[b, c, i, j]
 
-tức tương đương GAP + linear của CNN. Vì vậy CAM, L_loc và Grad-CAM dùng lại
-được y như ResNet/DenseNet.
+which matches GAP + linear in a CNN. CAM, L_loc and Grad-CAM therefore work
+exactly as for ResNet/DenseNet.
 
-Lưu ý: đây là kiến trúc khác ViT-CLS (``vit_b_16``), nên ablation L_loc phải so
-với baseline ViT-GAP (λ=0), không so với ViT-CLS.
+Note: the L_loc ablation for this model compares against a ViT-GAP baseline (λ=0).
 """
 
 import math
@@ -26,15 +25,18 @@ class ViTGAP(nn.Module):
     def __init__(self, vit, num_classes):
         super().__init__()
         hidden_dim = vit.hidden_dim
-        vit.heads = nn.Identity()  # head CLS không dùng tới
+        vit.heads = nn.Identity()  # the CLS head is not used
         self.backbone = vit
         self.head = nn.Linear(hidden_dim, num_classes)
 
     def encode(self, images, capture_layer=None, capture_fn=None):
         """
-        Chạy encoder như torchvision, trả về token sau LayerNorm cuối [B, 1+N, D].
-        Nếu capture_layer (chỉ số block) được đặt, gọi capture_fn(tokens) với
-        output của block đó (dùng cho Grad-CAM lớp áp chót).
+        Run the encoder as torchvision does and return tokens after the final
+        LayerNorm, [B, 1 + N, D].
+
+        Args:
+            capture_layer: optional block index; capture_fn(tokens) is called on the
+                output of that block (used for penultimate-layer Grad-CAM).
         """
         vit = self.backbone
         x = vit._process_input(images)
@@ -59,7 +61,7 @@ class ViTGAP(nn.Module):
         return tokens.transpose(1, 2).reshape(batch, dim, side, side)
 
     def feature_map(self, images):
-        """Feature map cuối (bỏ CLS) dạng [B, D, 14, 14]."""
+        """Last feature map without the CLS token, [B, D, 14, 14]."""
         return self.tokens_to_grid(self.encode(images)[:, 1:])
 
     def forward(self, images):

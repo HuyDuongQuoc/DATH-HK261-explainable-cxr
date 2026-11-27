@@ -19,7 +19,6 @@ from src.data.protocol import (
     validate_checkpoint_protocol,
 )
 from src.losses.classification_loss import (
-    prior_logit_bias,
     build_classification_loss,
     validate_checkpoint_loss_protocol,
 )
@@ -29,8 +28,7 @@ from src.metrics.classification import (
     optimize_f1_thresholds,
 )
 from src.losses.localization_loss import ACTIVATION_TRANSFORMS, MASK_TYPES
-from src.models.factory import build_model, classifier_head, model_kwargs_from_config
-from src.data.reader_votes import build_reader_vote_table
+from src.models.factory import build_model, model_kwargs_from_config
 from src.training.engine import run_epoch
 from src.utils.checkpoint import (
     load_checkpoint,
@@ -86,7 +84,7 @@ def build_training_protocol(
         "monitor": training_config["monitor"],
     }
     if localization_protocol is not None:
-        # chỉ thêm khi bật, để checkpoint baseline cũ vẫn resume được
+        # only added when enabled, so older baseline checkpoints still resume
         protocol["localization_loss"] = localization_protocol
     return protocol
 
@@ -245,21 +243,12 @@ def main():
     localization_protocol = None
     if use_loc:
         localization_protocol = {"lambda_loc": loc_weight, "mask": "union_masks"}
-        # Chỉ ghi khóa mới khi khác mặc định, để checkpoint cũ vẫn resume được.
+        # New keys are only written when they differ from the defaults, so older checkpoints still resume.
         if loc_mask_type != "union":
             localization_protocol["mask"] = f"{loc_mask_type}_masks"
         if loc_transform != "softplus":
             localization_protocol["activation"] = loc_transform
     model_kwargs = model_kwargs_from_config(config["model"])
-
-    label_policy = training_config["loss"].get("label_policy", "majority")
-    num_readers = int(config["data"]["expected_readers"])
-    train_reader_votes = None
-    if label_policy != "majority":
-        train_ids = pd.read_csv(config["data"]["train_manifest_path"])["image_id"]
-        train_reader_votes = build_reader_vote_table(
-            config["data"]["annotation_csv"], findings, image_ids=train_ids
-        )
 
     train_dataset = CXRDataset(
         manifest_path=config["data"]["train_manifest_path"],
@@ -270,8 +259,6 @@ def main():
         std=preprocessing_config["std"],
         load_masks=use_loc,
         augmentation_config=train_augmentation,
-        reader_votes=train_reader_votes,
-        positive_votes=int(config["data"]["positive_votes"]),
     )
 
     val_dataset = CXRDataset(
@@ -346,13 +333,6 @@ def main():
             loss_config=training_config["loss"],
         )
     )
-    prior_bias_init = bool(training_config.get("prior_bias_init", False))
-    if prior_bias_init:
-        # Với ASL/focal, pos_weight chỉ nhân phần dương nên vẫn dùng làm xấp xỉ p_eff.
-        bias = prior_logit_bias(train_labels, pos_weight.detach().cpu().numpy())
-        head = classifier_head(model, config["model"]["name"])
-        with torch.no_grad():
-            head.bias.copy_(torch.as_tensor(bias, dtype=head.bias.dtype, device=head.bias.device))
 
     training_protocol = build_training_protocol(
         training_config=training_config,
@@ -361,8 +341,6 @@ def main():
         amp_enabled=amp_enabled,
         localization_protocol=localization_protocol,
     )
-    if prior_bias_init:
-        training_protocol["prior_bias_init"] = True
     if model_kwargs["dilate_last_stage"]:
         training_protocol["dilate_last_stage"] = True
 
@@ -478,8 +456,6 @@ def main():
             loc_weight=loc_weight,
             loc_mask_type=loc_mask_type,
             loc_transform=loc_transform,
-            label_policy=label_policy,
-            num_readers=num_readers,
             description=(
                 f"Epoch {epoch + 1:02d}/{training_config['epochs']:02d} — train"
             ),
@@ -499,8 +475,6 @@ def main():
             loc_weight=loc_weight,
             loc_mask_type=loc_mask_type,
             loc_transform=loc_transform,
-            label_policy=label_policy,
-            num_readers=num_readers,
             description=(
                 f"Epoch {epoch + 1:02d}/{training_config['epochs']:02d} — val"
             ),

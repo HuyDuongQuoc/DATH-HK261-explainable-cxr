@@ -79,46 +79,38 @@ preprocessing:
 model:
   name: resnet50
   pretrained: true
-  # Chỉ ResNet-50: layer4 dùng dilation thay vì stride -> CAM 14x14 thay vì 7x7.
+  # ResNet-50 only: dilate layer4 instead of striding -> 14x14 CAM instead of 7x7.
   dilate_last_stage: false
 
 training:
-  batch_size: 8
-  validation_batch_size: 8
+  batch_size: 16
+  validation_batch_size: 32
   num_workers: 2
   persistent_workers: true
   prefetch_factor: 2
   use_amp: true
   show_progress: true
 
-  epochs: 30
+  epochs: 12
   learning_rate: 0.0001
   weight_decay: 0.0001
 
   monitor: macro_auroc
-  patience: 5
+  patience: 3
   min_delta: 0.0001
 
-  # Khởi tạo bias head = log(p_eff/(1-p_eff)) theo tỉ lệ dương train và pos_weight.
-  prior_bias_init: false
-
+  # Weighted BCE with pos_weight = n_neg / n_pos per finding (majority labels).
   loss:
-    # weighted_bce | sigmoid_focal (thêm gamma) | asymmetric (gamma_pos, gamma_neg, clip;
-    # mặc định 0 / 4 / 0.05 theo Ridnik et al. 2021, thường dùng với positive_weight.mode: none)
     name: weighted_bce
     positive_weight:
-      # raw_ratio | sqrt_ratio | sqrt_ratio_capped (max_value) | class_balanced (beta) | none
       mode: raw_ratio
       max_value: null
-    # Nhãn khi TRAIN: majority (mặc định) | ignore_minority (bỏ ca 1/3 reader)
-    # | soft_votes (target = số reader / 3). Validation/test luôn dùng nhãn đa số.
-    label_policy: majority
 
 localization_loss:
   enabled: false
   lambda_loc: 0.25
-  # Vùng đích của L_loc: union (>=1 reader, mặc định), majority (>=2/3 reader),
-  # soft (tỉ lệ reader vẽ box, dùng làm trọng số).
+  # Target region of L_loc: union (>= 1 reader, default), majority (>= 2/3 readers),
+  # soft (fraction of readers with a box, used as a weight).
   mask: union
-  # Biến CAM thành năng lượng không âm: softplus (mặc định) hoặc relu (như Rao et al. 2023).
+  # CAM -> non-negative energy: softplus (default) or relu (as in Rao et al. 2023).
   activation: softplus

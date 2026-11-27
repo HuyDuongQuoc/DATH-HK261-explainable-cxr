@@ -1,17 +1,18 @@
 """
-RQ1: Classification tốt hơn có kéo theo localization tốt hơn không?
+RQ1: does better classification come with better localization?
 
-Ba góc nhìn, đều trên bảng run × finding:
+Three views, all on the run x finding table:
 
-1. Architecture-level: macro classification vs macro localization của các baseline
-   (λ=0), mean ± sd qua seed, kèm thứ hạng.
-2. Within-finding: với mỗi finding, Spearman giữa metric classification và
-   localization qua các run baseline (khác kiến trúc/seed), rồi trung bình qua
-   finding. Loại bỏ yếu tố "finding dễ thì cả hai đều cao". CI bootstrap theo finding.
-   Pooled Spearman (mọi cặp run × finding) cũng được báo cáo nhưng bị chi phối
-   bởi độ khó của finding.
-3. Can thiệp: so mỗi run λ>0 với baseline cùng kiến trúc + seed. Nếu localization
-   đổi nhiều mà classification gần như đứng yên thì hai trục tách rời.
+1. Architecture level: macro classification vs macro localization of the baselines
+   (λ=0), mean ± sd over seeds, with ranks.
+2. Within finding: for each finding, the Spearman correlation between a
+   classification and a localization metric across baseline runs (architectures and
+   seeds), averaged over findings. This removes the "easy findings score high on
+   both" effect. The CI is a bootstrap over findings. The pooled Spearman (all
+   run x finding pairs) is also reported but is dominated by finding difficulty.
+3. Intervention: compare each λ>0 run with the baseline of the same architecture and
+   seed. If localization changes a lot while classification barely moves, the two
+   axes are decoupled.
 """
 
 import numpy as np
@@ -83,7 +84,7 @@ def correlation_table(table, n_boot=2000, seed=0, baseline_only=True):
 
 
 def intervention_table(table):
-    """Hiệu (λ>0 trừ baseline cùng arch + seed) của metric macro theo finding."""
+    """Difference (λ>0 run minus the same-arch, same-seed baseline) of each macro metric."""
     metrics = _available(table, CLS_METRICS + LOC_METRICS)
     macro = table.groupby(["arch", "seed", "lambda", "run"])[metrics].mean().reset_index()
     base = macro[macro["lambda"] == 0].set_index(["arch", "seed"])
@@ -105,35 +106,35 @@ def intervention_table(table):
 
 def to_markdown(arch, corr, intervention, split, method):
     lines = [f"# RQ1 — classification vs localization ({split}, {method})", ""]
-    lines += ["## Theo kiến trúc (baseline λ=0, macro theo finding)", "", markdown_table(arch), ""]
+    lines += ["## By architecture (baselines λ=0, macro over findings)", "", markdown_table(arch), ""]
     notes = []
     if {"eib_mean", "eib_minus_prior_mean"} <= set(arch.columns):
         prior_eib = (arch["eib_mean"] - arch["eib_minus_prior_mean"]).mean()
         notes.append(
-            f"- Prior giải phẫu (trung bình union mask train, không nhìn ảnh) có EIB ≈ {prior_eib:.3f}. "
-            "`eib_minus_prior` < 0 nghĩa là explanation của model tập trung vào box kém hơn bản đồ "
-            "vị trí cố định này."
+            f"- The anatomical prior (mean training union mask, image-independent) has EIB ≈ {prior_eib:.3f}. "
+            "`eib_minus_prior` < 0 means the explanation is less concentrated in the box than this "
+            "fixed location map."
         )
     if method == "gradcam":
         notes.append(
-            "- Pointing của Grad-CAM tính trên lưới gốc của model (CNN 7×7, ViT 14×14) nên không "
-            "hoàn toàn so được giữa CNN và ViT; occlusion dùng cùng lưới 7×7 cho mọi model."
+            "- Grad-CAM pointing uses each model's native grid (CNN 7×7, ViT 14×14), so it is not "
+            "fully comparable between CNN and ViT; occlusion uses the same 7×7 grid for every model."
         )
     if notes:
-        lines += ["Lưu ý:", "", *notes, ""]
+        lines += ["Notes:", "", *notes, ""]
     lines += [
-        "## Tương quan Spearman",
+        "## Spearman correlation",
         "",
-        "`within_finding_spearman`: trung bình qua finding của Spearman giữa các run "
-        "baseline trong cùng finding (CI bootstrap theo finding). `pooled_spearman` gộp "
-        "mọi cặp run × finding nên bị chi phối bởi độ khó của finding.",
+        "`within_finding_spearman`: Spearman across baseline runs within each finding, "
+        "averaged over findings (bootstrap CI over findings). `pooled_spearman` pools all "
+        "run × finding pairs and is therefore dominated by finding difficulty.",
         "",
         markdown_table(corr, index=False, digits=3),
         "",
     ]
     if not intervention.empty:
         lines += [
-            "## Can thiệp bằng L_loc (λ>0 trừ baseline cùng kiến trúc + seed)",
+            "## Intervention with L_loc (λ>0 minus the same-architecture, same-seed baseline)",
             "",
             markdown_table(intervention, index=False),
             "",

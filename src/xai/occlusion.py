@@ -1,9 +1,9 @@
 """
-Attribution và phép thử hành vi không dùng gradient, độc lập với CAM mà L_loc
-tối ưu. Dùng để kiểm tra mô hình guided có thật sự dựa vào vùng tổn thương hay
-chỉ "học cho đẹp" đúng heatmap được đánh giá.
+Gradient-free attribution and behavioural tests, independent of the CAM that
+L_loc optimizes. They check whether a guided model really relies on the lesion
+or only learns to produce the heatmap that is being evaluated.
 
-Ảnh đầu vào đã chuẩn hóa ImageNet, nên fill=0 tương ứng màu xám trung bình.
+Inputs are ImageNet-normalized, so fill=0 corresponds to the mean gray value.
 """
 
 import numpy as np
@@ -38,10 +38,11 @@ def occlusion_maps(
     chunk_size=64,
 ):
     """
-    Occlusion sensitivity: che từng patch, đo logit class giảm bao nhiêu.
+    Occlusion sensitivity: hide one patch at a time and measure the class logit drop.
 
-    Trả về np.ndarray [B, n, n] trong [0, 1] (ReLU của mức giảm, min-max theo
-    ảnh), cùng quy ước với GradCAM.generate để dùng chung metric.
+    Returns:
+        np.ndarray [B, n, n] in [0, 1] (ReLU of the drop, min-max scaled per image),
+        the same convention as GradCAM.generate so the same metrics apply.
     """
     was_training = model.training
     model.eval()
@@ -81,13 +82,16 @@ def occlusion_maps(
 @torch.no_grad()
 def box_occlusion_drops(model, images, masks, class_idx, fill=0.0):
     """
-    Phép thử hành vi: logit gốc, logit khi che toàn bộ vùng trong box và khi
-    che toàn bộ vùng ngoài box.
+    Behavioural test: the original logit, and its drop when hiding everything
+    inside the box or everything outside the box.
 
-    masks: [B, H, W] nhị phân cùng kích thước ảnh.
-    Trả về dict các np.ndarray [B]: logit, drop_inside, drop_outside.
-    Mô hình dựa vào tổn thương thật sẽ có drop_inside lớn và drop_outside nhỏ
-    hơn baseline (so sánh paired giữa hai mô hình, không so trị tuyệt đối).
+    Args:
+        masks: binary [B, H, W] masks with the image size.
+
+    Returns:
+        dict of np.ndarray [B]: logit, drop_inside, drop_outside. A model that
+        relies on the lesion has a larger drop_inside than its baseline (compare
+        paired models, not absolute values).
     """
     was_training = model.training
     model.eval()

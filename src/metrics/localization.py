@@ -60,17 +60,17 @@ def select_iou_threshold(records, thresholds=DEFAULT_IOU_THRESHOLDS):
 
 
 def box_area_fraction(union_mask):
-    """Tỉ lệ diện tích ảnh nằm trong box = EIB/Pointing kỳ vọng của heatmap đều."""
+    """Fraction of the image inside the box, i.e. the expected EIB/pointing of a uniform heatmap."""
     return float((np.asarray(union_mask) > 0).mean())
 
 
 def mean_iou_over_thresholds(row, thresholds=DEFAULT_IOU_THRESHOLDS):
-    """IoU trung bình trên mọi ngưỡng: không cần chọn ngưỡng riêng cho từng run."""
+    """Mean IoU over all thresholds, so no per-run threshold has to be chosen."""
     return float(np.mean([row[iou_column(t)] for t in thresholds]))
 
 
 def heatmap_correlation(heatmap, reference, eps=1e-8):
-    """Pearson giữa heatmap và một heatmap tham chiếu (vd prior). Cao = ít phụ thuộc ảnh."""
+    """Pearson correlation with a reference heatmap (e.g. the prior). High = little image dependence."""
     a = np.asarray(heatmap, dtype=np.float64).ravel()
     b = np.asarray(reference, dtype=np.float64).ravel()
     a = a - a.mean()

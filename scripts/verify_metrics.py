@@ -1,15 +1,18 @@
 """
-Kiểm tra độc lập các chỉ số đã lưu cho mọi run (classification + localization).
+Independently re-check the saved metrics of every run (classification + localization).
 
     python scripts/verify_metrics.py outputs/modal_runs/volume
 
-A. Tính lại AUROC/AP theo finding từ test_predictions.csv bằng sklearn, so với
-   test_metrics.json; kiểm tra mọi run dùng cùng ảnh + nhãn; so với AUROC validation.
-B. Kiểm tra records localization: miền giá trị, eib_over_area = eib/box_area,
-   eib_minus_prior = eib - prior_eib, macro EIB khớp localization_summary.json,
-   mốc ngẫu nhiên (pointing ≈ diện tích box) và prior giải phẫu; mọi run/method
-   đánh giá trên cùng tập cặp (image, finding) dương.
-Bỏ qua run theo tiền tố trong EXCLUDE (ViT train hỏng, ablation loss).
+A. Recompute per-finding AUROC/AP from test_predictions.csv with sklearn and compare
+   with test_metrics.json; check that all runs share the same images and labels;
+   compare with the validation AUROC.
+B. Check the localization records: value ranges, eib_over_area = eib / box_area,
+   eib_minus_prior = eib - prior_eib, macro EIB matches localization_summary.json,
+   the chance level (pointing ≈ box area) and the anatomical prior; every run and
+   method must use the same set of positive (image, finding) pairs.
+
+Only runs of the paper models are checked; names starting with EXCLUDE are skipped
+(ViT-GAP runs trained with the CNN recipe).
 """
 import json
 import sys
@@ -20,11 +23,20 @@ import pandas as pd
 from sklearn.metrics import average_precision_score, roc_auc_score
 
 ROOT = Path(sys.argv[1])
-EXCLUDE = ("vit_base_", "vitgap_", "loss_")
-runs = sorted(p for p in ROOT.iterdir()
-              if (p / "cls_test" / "test_metrics.json").is_file() and not p.name.startswith(EXCLUDE))
+MODELS = {"resnet50", "densenet121", "vit_b_16_gap"}
+EXCLUDE = ("vitgap_",)
 
-print("=== A. Classification: tính lại từ test_predictions.csv ===")
+
+def model_name(run):
+    config = run / "res" / "config.json"
+    return json.loads(config.read_text())["model"]["name"] if config.is_file() else None
+
+
+runs = sorted(p for p in ROOT.iterdir()
+              if (p / "cls_test" / "test_metrics.json").is_file()
+              and not p.name.startswith(EXCLUDE) and model_name(p) in MODELS)
+
+print("=== A. Classification: recomputed from test_predictions.csv ===")
 ref_targets, ref_ids = None, None
 rows = []
 for run in runs:
@@ -50,7 +62,7 @@ for run in runs:
     })
 print(pd.DataFrame(rows).round(4).to_string(index=False))
 prev = ref_targets.mean(0)
-print("\nPrevalence test (AP ngẫu nhiên = prevalence), macro =", round(prev.mean(), 4))
+print("\nTest prevalence (chance-level AP), macro =", round(prev.mean(), 4))
 print(pd.Series(prev, index=findings).round(4).to_string())
 
 print("\n=== B. Localization records ===")
@@ -85,6 +97,6 @@ for run in runs:
 print(pd.DataFrame(checks).round(4).to_string(index=False))
 
 sets = set(pair_sets.values())
-print("\nSố tập cặp (image, finding) khác nhau giữa các run/method:", len(sets))
+print("\nDistinct (image, finding) pair sets across runs/methods:", len(sets))
 n_pos = int(ref_targets.sum())
-print("Số cặp dương trong nhãn test:", n_pos, "| số cặp được đánh giá:", len(next(iter(sets))))
+print("Positive pairs in the test labels:", n_pos, "| evaluated pairs:", len(next(iter(sets))))

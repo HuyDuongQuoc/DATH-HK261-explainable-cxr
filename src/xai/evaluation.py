@@ -20,7 +20,7 @@ from src.xai.priors import pool_to_grid
 
 ATTRIBUTION_METHODS = ("gradcam", "gradcam_penultimate", "occlusion")
 
-# Các cột được tổng hợp theo finding nếu có trong records.
+# Columns summarized per finding when present in the records.
 SUMMARY_METRICS = (
     ("pointing_hit_rate", "pointing_hit"),
     ("eib", "eib"),
@@ -37,7 +37,7 @@ SUMMARY_METRICS = (
 
 
 class _Attributor:
-    """Bọc các phương pháp attribution về cùng giao diện generate(images, class_idx)."""
+    """Wrap attribution methods behind one interface: generate(images, class_idx)."""
 
     def __init__(self, model, model_name, method, occlusion_kwargs=None):
         if method not in ATTRIBUTION_METHODS:
@@ -75,19 +75,22 @@ def collect_localization_records(
     occlusion_kwargs=None,
 ):
     """
-    Với mỗi cặp (ảnh, class) có mask_valid: heatmap của đúng class có GT bbox
-    (không phải class model dự đoán), rồi tính Pointing Game, EIB và IoU ở mọi
-    threshold. Heatmap được resize về kích thước mask trước khi tính IoU/EIB.
+    Compute one localization record per (image, class) pair with mask_valid.
 
-    Cột bổ sung:
-      box_area        tỉ lệ diện tích box (= mức ngẫu nhiên của EIB/Pointing)
-      eib_over_area   EIB chia diện tích box (so được giữa split có box to/nhỏ khác nhau)
-      iou_mean        IoU trung bình mọi ngưỡng (không cần chọn ngưỡng theo run)
-      prior_*         nếu truyền priors [C, H, W]: EIB/Pointing của prior giải phẫu,
-                      eib_minus_prior và tương quan heatmap–prior
-      logit, drop_*   nếu box_occlusion=True: logit giảm khi che trong/ngoài box
+    The heatmap is for the ground-truth class (not the predicted class). Pointing
+    game, EIB and IoU at every threshold are computed after resizing the heatmap to
+    the mask size.
 
-    Loader phải trả union_masks và mask_valid (CXRDataset load_masks=True).
+    Extra columns:
+        box_area: fraction of the image inside the box (chance level of EIB/pointing).
+        eib_over_area: EIB divided by box area (comparable across box sizes).
+        iou_mean: mean IoU over all thresholds (no per-run threshold needed).
+        prior_*: when priors [C, H, W] are given, EIB/pointing of the anatomical
+            prior, eib_minus_prior and the heatmap-prior correlation.
+        logit, drop_*: when box_occlusion=True, the logit drop when hiding the
+            inside or the outside of the box.
+
+    The loader must return union_masks and mask_valid (CXRDataset with load_masks=True).
     """
     rows = []
     seen = 0
@@ -162,7 +165,7 @@ def collect_localization_records(
 
 
 def summarize_by_finding(records, findings, threshold):
-    """Bảng finding x {n, hit_rate, eib, iou, ...} tại threshold cố định, kèm dòng macro."""
+    """Table of finding x {n, hit_rate, eib, iou, ...} at a fixed threshold, plus a macro row."""
     column = iou_column(threshold)
     metrics = [
         (name, source)

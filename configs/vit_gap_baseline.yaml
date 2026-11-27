@@ -1,4 +1,10 @@
-# ViT-B/16 với head GAP trên patch token (src/models/vit_gap.py).
-# Baseline (λ=0) cho ablation location-aware của ViT; không so trực tiếp với vit_baseline (head CLS).
+# ViT-B/16 with a GAP head over patch tokens (src/models/vit_gap.py).
+# ViT needs its own fine-tuning recipe: the CNN recipe (lr 1e-4, 12 epochs) does not converge.
 model:
   name: vit_b_16_gap
+
+training:
+  learning_rate: 2.0e-5
+  weight_decay: 0.05
+  epochs: 30
+  patience: 5

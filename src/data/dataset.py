@@ -18,14 +18,7 @@ class CXRDataset(Dataset):
         std,
         load_masks=True,
         augmentation_config=None,
-        reader_votes=None,
-        positive_votes=2,
     ):
-        """
-        reader_votes: DataFrame (index image_id, cột findings) số reader đánh dấu.
-        Nếu có, mỗi sample thêm "reader_votes" và nhãn đa số được kiểm tra khớp
-        (votes >= positive_votes  <=>  label == 1).
-        """
         self.load_masks = bool(load_masks)
         if augmentation_config is not None and self.load_masks:
             raise ValueError(
@@ -65,18 +58,6 @@ class CXRDataset(Dataset):
         ).all():
             raise ValueError("Labels must be binary majority labels")
 
-        self.reader_votes = None
-        if reader_votes is not None:
-            votes = reader_votes.reindex(self.table["image_id"])
-            if votes.isna().any().any():
-                raise ValueError("reader_votes is missing manifest images")
-            votes = votes[self.findings].to_numpy(dtype=np.float32)
-            if not np.array_equal(votes >= positive_votes, label_values == 1):
-                raise ValueError(
-                    "reader_votes do not reproduce the majority labels"
-                )
-            self.reader_votes = votes
-
     def __len__(self):
         return len(self.table)
 
@@ -111,8 +92,6 @@ class CXRDataset(Dataset):
             "labels": labels,
             "image_id": str(row["image_id"]),
         }
-        if self.reader_votes is not None:
-            sample["reader_votes"] = torch.from_numpy(self.reader_votes[index])
         if not self.load_masks:
             return sample
 

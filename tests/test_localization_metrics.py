@@ -27,7 +27,7 @@ def test_pointing_game_hit_and_miss():
 
 
 def test_pointing_game_uses_cell_center():
-    # ô (3, 3) của grid 7x7 có tâm ở pixel 112 -> ngay ngoài box [0, 112)
+    # cell (3, 3) of the 7x7 grid is centred on pixel 112 -> just outside the box [0, 112)
     mask = box_mask()
     cam = np.zeros((7, 7)); cam[3, 3] = 1.0
     assert pointing_game(cam, mask) == 0
@@ -37,7 +37,7 @@ def test_iou_perfect_disjoint_and_partial():
     mask = box_mask()
     assert cam_iou(mask.copy(), mask, 0.5) == pytest.approx(1.0)
     assert cam_iou(box_mask(rows=slice(112, 224), cols=slice(112, 224)), mask, 0.5) == 0.0
-    half = box_mask(rows=slice(0, 112), cols=slice(0, 56))  # nằm trọn trong GT, bằng 1/2 diện tích
+    half = box_mask(rows=slice(0, 112), cols=slice(0, 56))  # fully inside the GT, half its area
     assert cam_iou(half, mask, 0.5) == pytest.approx(0.5, abs=1e-6)
 
 
@@ -52,7 +52,7 @@ def test_eib_inside_outside_and_mixed():
     mask = box_mask()
     assert energy_inside_box(mask.copy(), mask) == pytest.approx(1.0, abs=1e-6)
     assert energy_inside_box(1 - mask, mask) == pytest.approx(0.0, abs=1e-6)
-    # đều khắp ảnh -> EIB = tỉ lệ diện tích box (1/4)
+    # uniform over the image -> EIB = box area fraction (1/4)
     assert energy_inside_box(np.ones_like(mask), mask) == pytest.approx(0.25, abs=1e-6)
 
 

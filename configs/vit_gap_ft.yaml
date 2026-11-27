@@ -1,9 +1,0 @@
-# ViT-GAP (CAM trên patch token, dùng được L_loc) với cùng công thức fine-tune như vit_ft.yaml.
-# Chạy λ=0 (baseline) và λ=1 qua modal_sweep.py::ablation --lam.
-model:
-  name: vit_b_16_gap
-training:
-  learning_rate: 2.0e-5
-  weight_decay: 0.05
-  epochs: 30
-  patience: 5

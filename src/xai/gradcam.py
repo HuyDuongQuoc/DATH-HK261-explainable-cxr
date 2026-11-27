@@ -7,34 +7,31 @@ import torch.nn.functional as F
 from PIL import Image
 
 
-SUPPORTED_MODELS = ("resnet50", "densenet121", "vit_b_16", "vit_b_16_gap")
+SUPPORTED_MODELS = ("resnet50", "densenet121", "vit_b_16_gap")
 TARGET_LAYERS = ("last", "penultimate")
 
 
 class GradCAM:
     """
-    Grad-CAM cho ResNet50, DenseNet121 và ViT-B/16.
+    Grad-CAM for ResNet-50, DenseNet-121 and ViT-GAP.
 
-    - CNN: tự forward tới feature map cuối rồi gắn hook gradient lên chính tensor
-      đó. Không dùng module backward hook nên không vướng ReLU inplace của DenseNet.
-    - ViT: hook vào ln_1 của block cuối. Head chỉ đọc CLS token, nên gradient tại
-      output encoder (hay output block cuối) của patch token luôn bằng 0; tại ln_1
-      patch token vẫn ảnh hưởng CLS qua attention nên gradient khác 0.
+    The model is run forward manually up to the target feature map, and a gradient
+    hook is attached to that tensor. No module backward hooks are used, so the
+    in-place ReLU in DenseNet is not a problem.
 
-    generate() trả về (cam, class_idx):
-        cam:       np.ndarray [B, h, w] trong [0, 1], h x w là grid gốc (7x7 / 14x14)
-        class_idx: list[int] độ dài B
+    generate() returns (cam, class_idx):
+        cam: np.ndarray [B, h, w] in [0, 1] on the native grid (7x7 or 14x14).
+        class_idx: list[int] of length B.
     """
 
     def __init__(self, model, model_name: str, target_layer: str = "last"):
         """
-        target_layer (chỉ CNN):
-          - "last": feature map cuối (mặc định). Với GAP + linear, Grad-CAM ở đây
-            trùng CAM mà L_loc tối ưu, nên không độc lập với loss.
-          - "penultimate": output của layer3 (ResNet) / denseblock3 (DenseNet) /
-            block áp chót (ViT-GAP), grid 14x14, không phải đại lượng được tối ưu
-            trực tiếp.
-        ViT-GAP ở lớp cuối được xử lý như CNN: Grad-CAM trùng CAM trên patch token.
+        Args:
+            target_layer:
+                "last": last feature map (default). With GAP + linear, Grad-CAM here
+                    equals the CAM that L_loc optimizes, so it is not independent of the loss.
+                "penultimate": output of layer3 (ResNet), denseblock3 (DenseNet) or the
+                    second-to-last block (ViT-GAP), on a 14x14 grid; not optimized directly.
         """
         if model_name not in SUPPORTED_MODELS:
             raise ValueError(
@@ -42,8 +39,6 @@ class GradCAM:
             )
         if target_layer not in TARGET_LAYERS:
             raise ValueError(f"[GradCAM ERROR] unsupported target_layer: {target_layer}")
-        if target_layer != "last" and model_name == "vit_b_16":
-            raise ValueError("[GradCAM ERROR] target_layer is only configurable for CNNs")
 
         self.model = model
         self.model_name = model_name
@@ -52,17 +47,7 @@ class GradCAM:
         self.gradients = None
         self.hook_handles = []
 
-        if model_name == "vit_b_16":
-            target = self.model.encoder.layers[-1].ln_1
-            self.hook_handles.append(
-                target.register_forward_hook(self._save_vit_activation)
-            )
-
     # ---------- hooks ----------
-    def _save_vit_activation(self, module, inputs, output):
-        self.activations = output
-        output.register_hook(self._save_gradient)
-
     def _save_gradient(self, grad):
         self.gradients = grad
 
@@ -106,7 +91,7 @@ class GradCAM:
                 x = module(x)
                 if penultimate and name == "denseblock3":
                     self._capture(x)
-            features = F.relu(x)  # không inplace
+            features = F.relu(x)  # not in-place
             head = m.classifier
 
         else:
@@ -122,7 +107,7 @@ class GradCAM:
         self.activations = tensor
 
     def generate(self, input_tensor: torch.Tensor, class_idx=None):
-        """class_idx: None (argmax), int, hoặc list/tensor độ dài B."""
+        """class_idx: None (argmax), an int, or a list/tensor of length B."""
         was_training = self.model.training
         self.model.eval()
         self.activations = None
@@ -130,7 +115,7 @@ class GradCAM:
 
         try:
             with torch.enable_grad():
-                # requires_grad để graph luôn tồn tại kể cả khi model bị freeze
+                # requires_grad keeps the graph alive even when the model is frozen
                 x = input_tensor.detach().clone().requires_grad_(True)
                 logits = self._forward(x)
 
@@ -152,10 +137,8 @@ class GradCAM:
             if self.gradients is None:
                 raise RuntimeError("[GradCAM ERROR] no gradient captured")
 
-            if self.model_name == "vit_b_16" or (
-                self.model_name == "vit_b_16_gap" and self.target_layer == "penultimate"
-            ):
-                cam = self._process_vit()  # activation là token [B, 1+N, D]
+            if self.model_name == "vit_b_16_gap" and self.target_layer == "penultimate":
+                cam = self._process_vit()  # activations are tokens [B, 1 + N, D]
             else:
                 cam = self._process_cnn()
         finally:
@@ -174,7 +157,7 @@ class GradCAM:
         return self._normalize(cam.cpu().numpy())
 
     def _process_vit(self):
-        grads = self.gradients.detach()[:, 1:, :]  # bỏ CLS
+        grads = self.gradients.detach()[:, 1:, :]  # drop CLS
         acts = self.activations.detach()[:, 1:, :]
 
         weights = grads.mean(dim=1, keepdim=True)
@@ -188,7 +171,7 @@ class GradCAM:
 
     @staticmethod
     def _normalize(cam: np.ndarray) -> np.ndarray:
-        """Min-max theo từng ảnh; ảnh phẳng -> toàn 0."""
+        """Min-max scale each map; a flat map becomes all zeros."""
         flat = cam.reshape(cam.shape[0], -1)
         lo = flat.min(axis=1)[:, None, None]
         hi = flat.max(axis=1)[:, None, None]

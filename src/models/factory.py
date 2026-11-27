@@ -11,7 +11,7 @@ from torchvision.models import (
 
 from src.models.vit_gap import ViTGAP
 
-SUPPORTED_MODELS = ("resnet50", "densenet121", "vit_b_16", "vit_b_16_gap")
+SUPPORTED_MODELS = ("resnet50", "densenet121", "vit_b_16_gap")
 
 
 def build_model(
@@ -21,9 +21,12 @@ def build_model(
     dilate_last_stage=False,
 ):
     """
-    dilate_last_stage (chỉ ResNet-50): thay stride của layer4 bằng dilation,
-    feature map cuối 14x14 thay vì 7x7 ở input 224, không thêm tham số nên vẫn
-    dùng được trọng số ImageNet. Giúp CAM/L_loc mịn hơn cho tổn thương nhỏ.
+    Build a classifier with a new linear head of size num_classes.
+
+    Args:
+        dilate_last_stage: ResNet-50 only. Replace the stride of layer4 with
+            dilation, giving a 14x14 instead of 7x7 feature map at 224 px. No new
+            parameters, so ImageNet weights still load. Gives finer CAMs for small lesions.
     """
     if dilate_last_stage and model_name != "resnet50":
         raise ValueError("dilate_last_stage is only supported for resnet50")
@@ -61,20 +64,6 @@ def build_model(
             num_classes,
         )
 
-    elif model_name == "vit_b_16":
-        weights = (
-            ViT_B_16_Weights.IMAGENET1K_V1
-            if pretrained
-            else None
-        )
-
-        model = vit_b_16(weights=weights)
-
-        model.heads.head = nn.Linear(
-            model.heads.head.in_features,
-            num_classes,
-        )
-
     elif model_name == "vit_b_16_gap":
         weights = (
             ViT_B_16_Weights.IMAGENET1K_V1
@@ -90,20 +79,8 @@ def build_model(
     return model
 
 def model_kwargs_from_config(model_config):
-    """Các tham số kiến trúc (ngoài tên/pretrained) đọc từ config["model"]."""
+    """Architecture options (besides name/pretrained) read from config["model"]."""
     return {
         "dilate_last_stage": bool(model_config.get("dilate_last_stage", False)),
     }
 
-
-def classifier_head(model, model_name):
-    """Lớp Linear cuối của từng kiến trúc (dùng cho khởi tạo bias theo prior)."""
-    if model_name == "resnet50":
-        return model.fc
-    if model_name == "densenet121":
-        return model.classifier
-    if model_name == "vit_b_16":
-        return model.heads.head
-    if model_name == "vit_b_16_gap":
-        return model.head
-    raise ValueError(f"Unsupported model: {model_name}")

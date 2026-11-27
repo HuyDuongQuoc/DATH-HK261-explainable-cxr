@@ -1,12 +1,12 @@
 """
-RQ2: Location-aware loss có cải thiện localization không, và classification thay đổi ra sao?
+RQ2: does the location-aware loss improve localization, and how does classification change?
 
-So sánh paired từng cặp (baseline λ=0, run λ>0) cùng kiến trúc + seed trên external
-test, với bootstrap theo ảnh (src/metrics/localization_stats.py):
-  - localization bằng Grad-CAM (trùng đại lượng L_loc tối ưu) và occlusion (độc lập)
-  - box-occlusion: logit giảm khi che trong/ngoài box (phép thử hành vi)
-  - macro-AUROC từ test_predictions.csv
-Thêm bảng theo finding (hiệu EIB và AUROC) để trả lời finding nào hưởng lợi.
+Each (baseline λ=0, run λ>0) pair with the same architecture and seed is compared
+on the external test set with an image-level bootstrap (src/metrics/localization_stats.py):
+    - localization with Grad-CAM (the quantity L_loc optimizes) and occlusion (independent)
+    - box occlusion: logit drop when hiding the inside/outside of the box (behavioural test)
+    - macro AUROC from test_predictions.csv
+A per-finding table (EIB and AUROC differences) shows which findings benefit.
 """
 
 import pandas as pd
@@ -33,9 +33,11 @@ RECORD_METRICS = {
 
 def add_normalized_drops(records):
     """
-    drop_* tính bằng logit thô nên phụ thuộc thang logit của từng model (L_loc làm
-    thang này thay đổi). Chia cho độ lệch chuẩn logit của chính run đó trong cùng
-    finding để so sánh paired không bị lệch bởi thang.
+    Add drop_*_norm columns: drop_* divided by the std of the run's own logits
+    within each finding.
+
+    drop_* are raw logit drops, so they depend on each model's logit scale, which
+    L_loc changes. Normalizing keeps paired comparisons free of that scale effect.
     """
     if records is None or "logit" not in records.columns:
         return records
@@ -53,7 +55,7 @@ def _prediction_findings(path):
 
 
 def pairs(runs):
-    """Ghép mỗi run λ>0 với baseline cùng model + seed."""
+    """Pair each λ>0 run with the baseline of the same model and seed."""
     base = runs[runs["lambda"] == 0].set_index(["model", "seed"])
     out = []
     for row in runs[runs["lambda"] > 0].to_dict("records"):
@@ -118,25 +120,25 @@ def per_finding_table(runs, split="test", method="gradcam"):
 
 
 def to_markdown(paired, per_finding):
-    lines = ["# RQ2 — tác động của location-aware loss (external test)", ""]
+    lines = ["# RQ2 — effect of the location-aware loss (external test)", ""]
     if not paired.empty:
         cols = ["arch", "seed", "lambda", "method", "metric", "a", "b", "diff",
                 "ci_low", "ci_high", "p_two_sided"]
         lines += [
-            "## So sánh paired (B = λ>0, A = baseline cùng kiến trúc + seed; CI bootstrap theo ảnh)",
+            "## Paired comparison (B = λ>0, A = same-architecture, same-seed baseline; image-level bootstrap CI)",
             "",
-            "Grad-CAM lớp cuối trùng CAM mà L_loc tối ưu; kết luận về localization nên dựa "
-            "thêm vào occlusion và box-occlusion (`drop_inside`, `drop_outside`). "
-            "`eib_minus_prior` so với heatmap prior giải phẫu không nhìn ảnh.",
+            "Last-layer Grad-CAM equals the CAM that L_loc optimizes, so localization conclusions "
+            "should also rest on occlusion and box occlusion (`drop_inside`, `drop_outside`). "
+            "`eib_minus_prior` compares against the image-independent anatomical prior.",
             "",
-            "Lưu ý khi đọc:",
+            "Reading notes:",
             "",
-            "- `drop_*` là mức giảm logit thô; L_loc đổi thang logit của model nên dùng "
-            "`drop_*_norm` (chia độ lệch chuẩn logit của chính run trong cùng finding) để so sánh.",
-            "- `drop_outside` che toàn bộ ảnh ngoài box, ảnh thu được lệch phân phối rất mạnh; "
-            "nó tăng không có nghĩa localization kém đi. Bằng chứng hành vi chính là `drop_inside(_norm)`.",
-            "- Prior cố định giữa hai run nên Δ`eib_minus_prior` luôn bằng Δ`eib`; cột này chỉ có ý "
-            "nghĩa ở giá trị a/b (âm = kém hơn bản đồ vị trí trung bình).",
+            "- `drop_*` are raw logit drops; L_loc changes the logit scale, so compare with "
+            "`drop_*_norm` (divided by the run's own logit std within each finding).",
+            "- `drop_outside` hides the whole image outside the box, which is far out of distribution; "
+            "an increase does not mean worse localization. The main behavioural evidence is `drop_inside(_norm)`.",
+            "- The prior is the same for both runs, so Δ`eib_minus_prior` always equals Δ`eib`; the column "
+            "is only informative in its a/b values (negative = worse than the average location map).",
             "",
             markdown_table(paired[[c for c in cols if c in paired.columns]], index=False),
             "",
@@ -144,7 +146,7 @@ def to_markdown(paired, per_finding):
     if not per_finding.empty:
         summary = per_finding.groupby("finding")[[c for c in per_finding.columns if c.startswith("delta_")]].mean()
         lines += [
-            "## Theo finding (trung bình qua các cặp, Grad-CAM)",
+            "## By finding (mean over pairs, Grad-CAM)",
             "",
             markdown_table(
                 summary.sort_values("delta_eib", ascending=False)

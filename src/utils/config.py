@@ -9,15 +9,8 @@ SUPPORTED_MONITORS = {
     "macro_average_precision",
 }
 
-SUPPORTED_LOSSES = {"weighted_bce", "sigmoid_focal", "asymmetric"}
-SUPPORTED_LABEL_POLICIES = {"majority", "ignore_minority", "soft_votes"}
-SUPPORTED_POSITIVE_WEIGHT_MODES = {
-    "none",
-    "class_balanced",
-    "raw_ratio",
-    "sqrt_ratio",
-    "sqrt_ratio_capped",
-}
+SUPPORTED_LOSSES = {"weighted_bce"}
+SUPPORTED_POSITIVE_WEIGHT_MODES = {"raw_ratio"}
 
 
 def merge_dict(base: dict, override: dict) -> dict:
@@ -111,40 +104,6 @@ def validate_loss_config(training):
             f"{sorted(SUPPORTED_LOSSES)}"
         )
 
-    gamma = loss.get("gamma")
-    if loss["name"] == "sigmoid_focal":
-        gamma = _finite_number(gamma, "training.loss.gamma")
-        if not 0.0 < gamma <= 5.0:
-            raise ValueError("training.loss.gamma must be in (0, 5]")
-        loss["gamma"] = gamma
-    elif "gamma" in loss:
-        raise ValueError("training.loss.gamma is only accepted for sigmoid_focal")
-
-    asl_keys = ("gamma_pos", "gamma_neg", "clip")
-    if loss["name"] == "asymmetric":
-        defaults = {"gamma_pos": 0.0, "gamma_neg": 4.0, "clip": 0.05}
-        for key in asl_keys:
-            value = _finite_number(loss.get(key, defaults[key]), f"training.loss.{key}")
-            if key == "clip":
-                if not 0.0 <= value < 0.5:
-                    raise ValueError("training.loss.clip must be in [0, 0.5)")
-            elif not 0.0 <= value <= 10.0:
-                raise ValueError(f"training.loss.{key} must be in [0, 10]")
-            loss[key] = value
-    elif any(key in loss for key in asl_keys):
-        raise ValueError("gamma_pos/gamma_neg/clip are only accepted for asymmetric loss")
-
-    policy = loss.get("label_policy", "majority")
-    if policy not in SUPPORTED_LABEL_POLICIES:
-        raise ValueError(
-            "training.loss.label_policy must be one of "
-            f"{sorted(SUPPORTED_LABEL_POLICIES)}"
-        )
-    if policy == "majority":
-        loss.pop("label_policy", None)  # dạng chuẩn: bỏ khóa mặc định
-    else:
-        loss["label_policy"] = policy
-
     positive_weight = loss.get("positive_weight")
     if not isinstance(positive_weight, dict):
         raise ValueError("training.loss.positive_weight must be a mapping")
@@ -154,30 +113,11 @@ def validate_loss_config(training):
             "training.loss.positive_weight.mode must be one of "
             f"{sorted(SUPPORTED_POSITIVE_WEIGHT_MODES)}"
         )
-    maximum = positive_weight.get("max_value")
-    if mode == "sqrt_ratio_capped":
-        maximum = _finite_number(
-            maximum,
-            "training.loss.positive_weight.max_value",
-        )
-        if maximum <= 0.0:
-            raise ValueError("positive weight max_value must be positive")
-        positive_weight["max_value"] = maximum
-    elif maximum is not None:
-        raise ValueError(
-            "positive weight max_value must be null unless mode is "
-            "sqrt_ratio_capped"
-        )
-    beta = positive_weight.get("beta")
-    if mode == "class_balanced":
-        beta = _finite_number(beta, "training.loss.positive_weight.beta")
-        if not 0.0 < beta < 1.0:
-            raise ValueError("positive weight beta must be in (0, 1)")
-        positive_weight["beta"] = beta
-    elif beta is not None:
-        raise ValueError("positive weight beta is only accepted for class_balanced")
-    else:
-        positive_weight.pop("beta", None)
+    if positive_weight.get("max_value") is not None:
+        raise ValueError("training.loss.positive_weight.max_value must be null")
+    extra = set(loss) - {"name", "positive_weight"}
+    if extra:
+        raise ValueError(f"Unsupported training.loss keys: {sorted(extra)}")
 
 
 def validate_training_config(training):
@@ -188,8 +128,6 @@ def validate_training_config(training):
         minimum = 0 if field == "num_workers" else 1
         if value < minimum:
             raise ValueError(f"training.{field} must be >= {minimum}")
-    if not isinstance(training.get("prior_bias_init", False), bool):
-        raise ValueError("training.prior_bias_init must be boolean")
     validate_loss_config(training)
 
 

@@ -1,9 +1,9 @@
 """
-Baseline "prior giải phẫu": heatmap cố định cho mỗi finding, bằng trung bình
-union mask trên các cặp (ảnh, finding) dương tính của tập train. Heatmap này
-không nhìn ảnh, nên một mô hình chỉ học "vị trí trung bình" của finding sẽ có
-localization ngang prior. Localization của mô hình nên được báo cáo so với
-prior, không chỉ so với 0.
+Anatomical prior baseline: one fixed heatmap per finding, the mean union mask over
+positive (image, finding) pairs of the training set. It never looks at the image,
+so a model that only learns the average location of a finding localizes as well as
+the prior. Model localization should be reported relative to the prior, not only
+relative to zero.
 """
 
 import os
@@ -14,7 +14,7 @@ import numpy as np
 
 
 def accumulate_class_priors(loader, num_classes):
-    """Trung bình union mask trên các cặp mask_valid, shape [C, H, W]."""
+    """Mean union mask over mask_valid pairs, shape [C, H, W]."""
     total = None
     counts = np.zeros(num_classes, dtype=np.int64)
     for batch in loader:
@@ -34,7 +34,7 @@ def accumulate_class_priors(loader, num_classes):
 
 
 def load_or_build_priors(cache_path, build_fn, findings):
-    """Đọc prior từ cache .npz nếu khớp danh sách finding, nếu không thì build và lưu."""
+    """Load the prior from a .npz cache if its findings match; otherwise build and save it."""
     cache_path = Path(cache_path)
     if cache_path.exists():
         with np.load(cache_path, allow_pickle=False) as stored:
@@ -43,7 +43,7 @@ def load_or_build_priors(cache_path, build_fn, findings):
         raise ValueError(f"Prior cache {cache_path} was built for different findings")
     priors, counts = build_fn()
     cache_path.parent.mkdir(parents=True, exist_ok=True)
-    # Ghi ra file tạm rồi rename: nhiều container có thể build cùng lúc.
+    # Write to a temp file, then rename: several jobs may build the cache at once.
     tmp_path = cache_path.with_name(f"{cache_path.stem}.{os.getpid()}.tmp.npz")
     np.savez_compressed(
         tmp_path,
@@ -56,7 +56,7 @@ def load_or_build_priors(cache_path, build_fn, findings):
 
 
 def pool_to_grid(prior, grid_shape):
-    """Area-pool prior [H, W] về grid của heatmap (vd 7x7) để chấm Pointing Game cùng độ phân giải."""
+    """Area-pool a prior [H, W] to the heatmap grid (e.g. 7x7) so pointing uses the same resolution."""
     return cv2.resize(
         prior.astype(np.float32),
         (grid_shape[1], grid_shape[0]),

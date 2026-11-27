@@ -1,8 +1,8 @@
 """
-So sánh paired hai run (A = tham chiếu, thường là baseline; B = run cần đánh giá)
-trên cùng split, với bootstrap theo ảnh.
+Paired comparison of two runs (A = reference, usually the baseline; B = run under
+test) on the same split, with an image-level bootstrap.
 
-Ví dụ:
+Example:
     python scripts/compare_runs.py \
         --config configs/resnet50_location.yaml \
         --a-loc outputs/full/runs/r50_base/loc_test/test_localization_records.csv \
@@ -11,8 +11,8 @@ Ví dụ:
         --b-pred outputs/full/runs/r50_l1/cls_test/test_predictions.csv \
         --output outputs/comparisons/r50_base_vs_l1_test.json
 
-Lưu ý: chỉ so các run được đánh giá bằng cùng --method và cùng ngưỡng IoU
-(dùng iou_mean hoặc --iou-threshold cố định khi chạy evaluate_localization.py).
+Note: only compare runs evaluated with the same --method and the same IoU threshold
+(use iou_mean, or a fixed --iou-threshold in evaluate_localization.py).
 """
 
 import argparse
@@ -46,7 +46,7 @@ DEFAULT_LOC_METRICS = (
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--config", required=True, help="Để lấy danh sách finding")
+    parser.add_argument("--config", required=True, help="Config that defines the findings")
     parser.add_argument("--a-loc")
     parser.add_argument("--b-loc")
     parser.add_argument("--a-pred")
@@ -58,7 +58,7 @@ def main():
     args = parser.parse_args()
 
     if not ((args.a_loc and args.b_loc) or (args.a_pred and args.b_pred)):
-        parser.error("Cần ít nhất một cặp --a-loc/--b-loc hoặc --a-pred/--b-pred")
+        parser.error("Need at least one pair of --a-loc/--b-loc or --a-pred/--b-pred")
 
     findings = load_config(args.config)["data"]["target_findings"]
     result = {"a": {}, "b": {}, "localization": [], "classification": []}

@@ -8,11 +8,11 @@ def forward_with_activation(
     images,
 ):
     """
-    Trả về (logits, activation) với activation [B, C, h, w] còn graph.
+    Return (logits, activation), where activation is the class activation map
+    [B, C, h, w] with the autograd graph attached.
 
-    CAM-style: áp trọng số của lớp phân loại lên feature map cuối
-    (1x1 conv), nên activation.mean((2, 3)) == logits.
-    Logits giống hệt model(images).
+    The classifier weights are applied to the last feature map as a 1x1 conv,
+    so activation.mean((2, 3)) == logits, and logits equal model(images).
     """
     if model_name == "resnet50":
         x = model.conv1(images)
@@ -38,8 +38,8 @@ def forward_with_activation(
             f"Spatial activation not supported for {model_name}"
         )
 
-    # Tính CAM ở fp32 kể cả khi đang autocast fp16, để L_loc (tỉ lệ năng lượng)
-    # không mất độ chính xác trước khi qua softplus/relu.
+    # Compute the CAM in fp32 even under fp16 autocast, so L_loc (an energy ratio)
+    # keeps its precision before softplus/relu.
     with torch.autocast(device_type=features.device.type, enabled=False):
         activation = F.conv2d(
             features.float(),

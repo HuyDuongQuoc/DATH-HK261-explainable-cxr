@@ -1,13 +1,13 @@
 """
-Đóng gói code + dữ liệu đã tiền xử lý (validation + external test) + checkpoint +
-prior thành một thư mục để upload làm Kaggle dataset (private) rồi đánh giá bằng
+Pack code, preprocessed data (validation + external test), checkpoints and the
+prior into one folder, to upload as a private Kaggle dataset and evaluate with
 scripts/kaggle_eval.py.
 
     python scripts/make_eval_bundle.py --source outputs/kaggle_bundle --output outputs/kaggle_dataset
 
---source phải có data/{trainval,test,train.csv,val.csv,test.csv}, priors/, runs/<run>/...
-(tải từ volume Modal). Chỉ giữ ảnh/mask của validation trong trainval, và bỏ trạng
-thái optimizer khỏi checkpoint để giảm dung lượng upload.
+--source must contain data/{trainval,test,train.csv,val.csv,test.csv}, priors/ and
+runs/<run>/... Only validation images/masks are kept from trainval, and optimizer
+state is dropped from checkpoints to reduce the upload size.
 """
 
 import argparse

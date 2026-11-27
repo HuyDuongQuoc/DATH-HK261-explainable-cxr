@@ -4,7 +4,6 @@ import numpy as np
 import torch
 from tqdm.auto import tqdm
 
-from src.losses.classification_loss import build_training_targets
 from src.losses.localization_loss import localization_loss, select_target_masks
 from src.models.resnet import forward_with_activation
 
@@ -23,8 +22,6 @@ def run_epoch(
     loc_weight=0.0,
     loc_mask_type="union",
     loc_transform="softplus",
-    label_policy="majority",
-    num_readers=3,
 ):
     training = optimizer is not None
     use_loc = loc_weight > 0
@@ -94,24 +91,13 @@ def run_epoch(
                         "shapes do not match"
                     )
 
-                if training and label_policy != "majority":
-                    # Chỉ khi train: target/weight theo số reader (validation giữ nhãn đa số)
-                    votes = batch.get("reader_votes")
-                    train_targets, sample_weight = build_training_targets(
-                        labels,
-                        None if votes is None else votes.to(device),
-                        label_policy,
-                        num_readers,
-                    )
-                    cls_loss = criterion(logits, train_targets, weight=sample_weight)
-                else:
-                    cls_loss = criterion(
-                        logits,
-                        labels,
-                    )
+                cls_loss = criterion(
+                    logits,
+                    labels,
+                )
 
             if use_loc:
-                # L_loc tính ở fp32 ngoài autocast để tỉ lệ năng lượng không mất độ chính xác
+                # L_loc runs in fp32 outside autocast so the energy ratio keeps its precision
                 target_masks, loc_valid = select_target_masks(batch, loc_mask_type)
                 loc_loss = localization_loss(
                     activation.float(),

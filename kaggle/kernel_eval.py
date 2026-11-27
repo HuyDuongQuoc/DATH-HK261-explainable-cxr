@@ -1,9 +1,10 @@
 """
-Kernel Kaggle (GPU): tìm bundle trong /kaggle/input rồi chạy scripts/kaggle_eval.py.
-Bundle = Kaggle dataset tạo bởi scripts/make_eval_bundle.py. Kết quả ở /kaggle/working/runs/.
+Kaggle GPU kernel: find the bundle under /kaggle/input and run scripts/kaggle_eval.py.
+The bundle is a Kaggle dataset built by scripts/make_eval_bundle.py. Results go to
+/kaggle/working/runs/.
 
-Khi upload bằng `kaggle datasets create --dir-mode zip`, mỗi thư mục con có thể
-nằm dưới dạng <tên>.zip nếu Kaggle không tự giải nén; kernel tự giải nén vào /kaggle/tmp.
+With `kaggle datasets create --dir-mode zip`, each subfolder may arrive as <name>.zip
+if Kaggle does not unpack it; the kernel then unpacks it into /kaggle/tmp.
 """
 import os
 import subprocess
@@ -34,9 +35,9 @@ def _materialize(source, part, bundle):
         return
     archives = [p for p in source.iterdir() if p.name.startswith(part + ".")]
     if not archives:
-        raise FileNotFoundError(f"Thiếu {part} trong {source}: {sorted(p.name for p in source.iterdir())}")
+        raise FileNotFoundError(f"Missing {part} in {source}: {sorted(p.name for p in source.iterdir())}")
     extract(archives[0], bundle / part)
-    nested = bundle / part / part  # zip có thể chứa thư mục gốc cùng tên
+    nested = bundle / part / part  # the zip may contain a top-level folder with the same name
     if nested.is_dir() and len(list((bundle / part).iterdir())) == 1:
         nested.rename(bundle / f"{part}_tmp")
         (bundle / part).rmdir()
@@ -45,12 +46,12 @@ def _materialize(source, part, bundle):
 
 def find_bundle():
     """
-    Ghép bundle từ hai dataset: dữ liệu (bundle_manifest.json, data/, priors/, runs/)
-    và code (code/scripts/kaggle_eval.py hoặc code.zip). Có thể là một dataset chung.
+    Assemble the bundle from two datasets: data (bundle_manifest.json, data/, priors/,
+    runs/) and code (code/scripts/kaggle_eval.py or code.zip). Both may be one dataset.
     """
     manifests = list(INPUT.rglob("bundle_manifest.json"))
     if not manifests:
-        raise FileNotFoundError("Không tìm thấy bundle_manifest.json trong /kaggle/input")
+        raise FileNotFoundError("bundle_manifest.json not found under /kaggle/input")
     data_source = manifests[0].parent
     bundle = Path("/kaggle/tmp/bundle")
     bundle.mkdir(parents=True, exist_ok=True)
@@ -58,8 +59,8 @@ def find_bundle():
     for part in ("data", "priors", "runs"):
         _materialize(data_source, part, bundle)
 
-    # Thư mục code = thư mục chứa scripts/kaggle_eval.py (Kaggle có thể bỏ hoặc giữ
-    # thư mục gốc "code/" khi giải nén code.zip, và mount dưới /kaggle/input/datasets/<user>/).
+    # The code folder is the one that contains scripts/kaggle_eval.py (Kaggle may drop or
+    # keep the top-level "code/" folder when unpacking, and mounts under /kaggle/input/datasets/<user>/).
     code_hits = sorted(INPUT.rglob("scripts/kaggle_eval.py"), key=lambda p: len(p.parts))
     if code_hits:
         if not (bundle / "code").exists():
@@ -67,7 +68,7 @@ def find_bundle():
     else:
         archives = list(INPUT.rglob("code.zip")) + list(INPUT.rglob("code.tar*"))
         if not archives:
-            raise FileNotFoundError("Không tìm thấy scripts/kaggle_eval.py hay code.zip trong /kaggle/input")
+            raise FileNotFoundError("Neither scripts/kaggle_eval.py nor code.zip found under /kaggle/input")
         _materialize(archives[0].parent, "code", bundle)
     print("code dir:", (bundle / "code").resolve(), flush=True)
     return bundle

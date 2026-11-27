@@ -1,7 +1,0 @@
-model:
-  name: resnet50
-training:
-  prior_bias_init: true
-  loss:
-    name: weighted_bce
-    positive_weight: {mode: class_balanced, max_value: null, beta: 0.999}

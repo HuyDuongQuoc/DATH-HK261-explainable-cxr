@@ -1,14 +1,14 @@
 """
-Đọc kết quả của các run (đã tải từ volume Modal hoặc chạy local) thành bảng dài
-run × finding để phân tích RQ1/RQ2. Không import matplotlib.
+Load run results into a long run x finding table for the RQ1/RQ2 analysis.
+Does not import matplotlib.
 
-Bố cục một run (tạo bởi scripts/modal_sweep.py):
+Expected run layout:
     <run>/res/config.json, res/best_val_metrics.json
     <run>/cls_test/test_metrics.json
-    <run>/loc/                 Grad-CAM trên validation (train_one)
-    <run>/loc_test_gradcam/    Grad-CAM trên test, có prior/box_area (eval_one)
-    <run>/loc_test_occlusion/  occlusion + box-occlusion trên test (eval_one)
-    <run>/loc_test/            bản cũ (Grad-CAM, chưa có prior)
+    <run>/loc/                 Grad-CAM on validation
+    <run>/loc_test_gradcam/    Grad-CAM on test, with prior/box_area
+    <run>/loc_test_occlusion/  occlusion + box occlusion on test
+    <run>/loc_test/            legacy layout (Grad-CAM without prior)
 """
 
 import json
@@ -20,7 +20,6 @@ import pandas as pd
 ARCH_LABELS = {
     "resnet50": "ResNet-50",
     "densenet121": "DenseNet-121",
-    "vit_b_16": "ViT-B/16",
     "vit_b_16_gap": "ViT-B/16 (GAP)",
 }
 
@@ -38,7 +37,7 @@ def _read_json(path):
 
 
 def run_info(run_dir):
-    """model, lambda (0 nếu tắt L_loc), seed, loss của một run, đọc từ config đã lưu."""
+    """Model, lambda (0 when L_loc is off), seed and loss of a run, read from its saved config."""
     run_dir = Path(run_dir)
     config = _read_json(run_dir / "res" / "config.json") or _read_json(run_dir / "config.json")
     if config is None:
@@ -124,7 +123,7 @@ def collect_runs(root, pattern="*"):
 
 
 def long_table(runs, split="test", method="gradcam"):
-    """Bảng run × finding gồm metric classification và localization (bỏ run thiếu dữ liệu)."""
+    """Run x finding table of classification and localization metrics (skips incomplete runs)."""
     frames, missing = [], []
     for info in runs.to_dict("records"):
         cls = classification_by_finding(info["path"], split)
@@ -141,7 +140,7 @@ def long_table(runs, split="test", method="gradcam"):
 
 
 def markdown_table(frame, index=True, digits=4):
-    """Bảng Markdown đơn giản (không cần thư viện tabulate)."""
+    """Simple Markdown table (no tabulate dependency)."""
     frame = frame.round(digits)
     if index:
         frame = frame.reset_index()

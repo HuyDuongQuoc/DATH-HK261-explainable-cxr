@@ -92,23 +92,6 @@ def test_image_only_augmentation_rejects_mask_loading(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "config_path,model_name",
-    [
-        ("configs/resnet50_aug_auprc.yaml", "resnet50"),
-        ("configs/densenet121_aug_auprc.yaml", "densenet121"),
-        ("configs/vit_aug_auprc.yaml", "vit_b_16"),
-    ],
-)
-def test_aug_auprc_configs_load(config_path, model_name):
-    config = load_config(config_path)
-
-    assert config["model"]["name"] == model_name
-    assert config["preprocessing"]["use_augmentation"] is True
-    assert config["preprocessing"]["augmentation"] == AUGMENTATION
-    assert config["training"]["monitor"] == "macro_average_precision"
-
-
-@pytest.mark.parametrize(
     "field,value",
     [
         ("rotation_degrees", -1.0),

@@ -49,6 +49,3 @@ streamlit
 kaggle
 
 iterative-stratification==0.1.9
-
-#modal.com
-modal

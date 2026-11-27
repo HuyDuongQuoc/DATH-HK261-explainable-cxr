@@ -1,6 +1,13 @@
-# ViT-GAP + L_loc trên CAM 14x14 của patch token. Baseline tương ứng: vit_gap_baseline.yaml.
+# ViT-GAP + L_loc on the 14x14 patch-token CAM. Baseline: vit_gap_baseline.yaml.
 model:
   name: vit_b_16_gap
 
+training:
+  learning_rate: 2.0e-5
+  weight_decay: 0.05
+  epochs: 30
+  patience: 5
+
 localization_loss:
   enabled: true
+  lambda_loc: 1.0

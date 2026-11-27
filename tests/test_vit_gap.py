@@ -15,7 +15,7 @@ from src.xai.gradcam import GradCAM
 def model():
     torch.manual_seed(0)
     m = build_model("vit_b_16_gap", 14, pretrained=False).eval()
-    # head khởi tạo ngẫu nhiên nhỏ; nhân lên để CAM có tương phản khi so sánh
+    # the random head init is small; scale it up so the CAM has contrast
     with torch.no_grad():
         m.head.weight.mul_(50)
     return m

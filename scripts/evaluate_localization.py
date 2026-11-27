@@ -66,16 +66,16 @@ def main():
         "--max-images",
         type=int,
         default=None,
-        help="Chỉ đánh giá khoảng N ảnh đầu mỗi split (smoke test).",
+        help="Only evaluate about the first N images of each split (smoke test).",
     )
     parser.add_argument(
         "--method",
         choices=ATTRIBUTION_METHODS,
         default="gradcam",
         help=(
-            "gradcam: lớp cuối (trùng CAM mà L_loc tối ưu); "
-            "gradcam_penultimate: layer3/denseblock3; "
-            "occlusion: không dùng gradient, độc lập với loss."
+            "gradcam: last layer (equals the CAM that L_loc optimizes); "
+            "gradcam_penultimate: layer3/denseblock3/second-to-last ViT block; "
+            "occlusion: gradient-free, independent of the loss."
         ),
     )
     parser.add_argument("--occlusion-patch", type=int, default=32)
@@ -83,27 +83,27 @@ def main():
     parser.add_argument(
         "--box-occlusion",
         action="store_true",
-        help="Đo logit giảm khi che toàn bộ vùng trong/ngoài box.",
+        help="Measure the logit drop when hiding the whole inside/outside of the box.",
     )
     parser.add_argument(
         "--iou-threshold",
         type=float,
         default=None,
         help=(
-            "Cố định ngưỡng IoU chung cho mọi run (khuyến nghị khi so sánh run). "
-            "Mặc định: chọn trên validation của chính run này."
+            "Fixed IoU threshold shared by all runs (recommended when comparing runs). "
+            "Default: chosen on this run's validation split."
         ),
     )
     parser.add_argument(
         "--prior-cache",
         default="outputs/priors/train_union_prior.npz",
-        help="File cache prior giải phẫu (trung bình union mask train theo finding).",
+        help="Cache file for the anatomical prior (mean training union mask per finding).",
     )
     parser.add_argument("--no-prior", action="store_true")
     parser.add_argument(
         "--test-only",
         action="store_true",
-        help="Bỏ qua validation (cần --iou-threshold và --split test); tiết kiệm GPU khi chỉ cần số test.",
+        help="Skip validation (needs --iou-threshold and --split test); saves GPU time when only test numbers are needed.",
     )
     parser.add_argument("--n-boot", type=int, default=1000)
     args = parser.parse_args()
@@ -125,8 +125,6 @@ def main():
         pretrained=False,
         **model_kwargs_from_config(config["model"]),
     ).to(device)
-    if model_name == "vit_b_16" and args.method == "gradcam_penultimate":
-        raise ValueError("gradcam_penultimate is only supported for CNNs")
     checkpoint = load_checkpoint(
         checkpoint_path=args.checkpoint,
         model=model,
@@ -174,7 +172,7 @@ def main():
     if args.test_only and (args.iou_threshold is None or args.split != "test"):
         raise ValueError("--test-only requires --iou-threshold and --split test")
 
-    # 1) Validation: chọn threshold IoU (bỏ qua nếu --test-only)
+    # 1) Validation: choose the IoU threshold (skipped with --test-only)
     selected_threshold, mean_iou_by_threshold = None, None
     splits = {}
     if not args.test_only:
@@ -216,7 +214,7 @@ def main():
         "test_only": args.test_only,
     }
 
-    # 2) Test: dùng threshold đã cố định
+    # 2) Test: use the fixed threshold
     if args.split == "test":
         external = data_config["external_test"]
         test_loader = build_loader(

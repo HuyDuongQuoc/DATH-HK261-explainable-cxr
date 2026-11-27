@@ -21,7 +21,7 @@ FINDINGS = [f"f{i}" for i in range(14)]
 
 
 class LeftHalfModel(torch.nn.Module):
-    """Logit class c = trung bình kênh 0 ở nửa trái ảnh: chỉ nửa trái quan trọng."""
+    """Class logit = mean of channel 0 over the left half, so only the left half matters."""
 
     def forward(self, x):
         score = x[:, 0, :, : x.shape[-1] // 2].mean(dim=(1, 2))
@@ -37,7 +37,7 @@ def test_occlusion_map_highlights_important_region():
     images = torch.ones(2, 3, 224, 224)
     cams = occlusion_maps(LeftHalfModel(), images, 3, patch=32, stride=32)
     assert cams.shape == (2, 7, 7)
-    assert cams[:, :, :3].min() > 0.99      # cột 0-2 nằm hẳn trong nửa trái
+    assert cams[:, :, :3].min() > 0.99      # columns 0-2 lie fully in the left half
     assert cams[:, :, 4:].max() == 0.0
 
 
@@ -59,12 +59,6 @@ def test_penultimate_gradcam_is_finer_and_differs_from_cam(name):
         cam, _ = gradcam.generate(images, 3)
     assert cam.shape == (2, 14, 14)
     assert cam.min() >= 0 and cam.max() <= 1
-
-
-def test_penultimate_rejected_for_vit():
-    model = build_model("vit_b_16", 14, pretrained=False)
-    with pytest.raises(ValueError):
-        GradCAM(model, "vit_b_16", target_layer="penultimate")
 
 
 def test_dilated_resnet_gives_14x14_activation_and_same_logits():
@@ -134,7 +128,7 @@ def test_records_with_prior_and_box_occlusion(method):
                 "eib_minus_prior", "prior_corr", "logit", "drop_inside", "drop_outside"}
     assert expected <= set(records.columns)
     assert np.allclose(records["box_area"], 0.25)
-    # prior = đúng mask nên EIB của prior = 1
+    # the prior equals the mask, so the prior EIB is 1
     assert np.allclose(records["prior_eib"], 1.0)
     table = summarize_by_finding(records, FINDINGS, 0.5)
     assert {"eib_minus_prior", "drop_inside", "iou"} <= set(table.columns)

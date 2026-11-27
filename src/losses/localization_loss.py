@@ -5,19 +5,20 @@ import torch.nn.functional as F
 ACTIVATION_TRANSFORMS = ("softplus", "relu")
 MASK_TYPES = ("union", "majority", "soft")
 
-# Với 3 reader, soft mask nhận giá trị k/3. Ngưỡng 0.5 tách đúng
-# "≥2/3 reader" khỏi "1/3 reader" ở phần trong box (biên có giá trị trung gian
-# do resize kiểu area).
+# With 3 readers, soft masks take values k/3. A 0.5 threshold separates
+# ">= 2/3 readers" from "1/3 reader" inside boxes (box borders get intermediate
+# values from area resizing).
 MAJORITY_THRESHOLD = 0.5
 
 
 def positive_part(activation, transform="softplus"):
     """
-    Biến CAM thành "năng lượng" không âm.
+    Turn a CAM into non-negative "energy".
 
-    - softplus (mặc định, giữ hành vi cũ): luôn có gradient, nhưng softplus(0)=ln2
-      nên để năng lượng ngoài box về 0, activation ngoài box phải rất âm.
-    - relu: giống Energy loss của Rao et al. (ICCV 2023), chỉ tính phần dương.
+    Transforms:
+        softplus: default. Always has a gradient, but softplus(0) = ln 2, so the
+            activation outside the box must be strongly negative to reach zero energy.
+        relu: as in the Energy loss of Rao et al. (ICCV 2023); keeps the positive part only.
     """
     if transform == "softplus":
         return F.softplus(activation)
@@ -28,14 +29,16 @@ def positive_part(activation, transform="softplus"):
 
 def select_target_masks(batch, mask_type="union"):
     """
-    Trả về (target_mask [B,C,H,W] trong [0,1], valid [B,C]) theo loại mask.
+    Build the target region for L_loc.
 
-    - union:    vùng có ít nhất 1 reader vẽ box (hành vi cũ).
-    - majority: vùng có đa số reader vẽ box (soft > 0.5).
-    - soft:     tỉ lệ reader vẽ box, dùng làm trọng số liên tục.
+    Mask types:
+        union: pixels inside a box from at least one reader (default).
+        majority: pixels inside boxes from most readers (soft mask > 0.5).
+        soft: fraction of readers whose box covers the pixel, used as a weight.
 
-    valid bị thu hẹp thêm nếu mask đích rỗng (ví dụ majority rỗng khi các reader
-    vẽ box không chồng nhau).
+    Returns:
+        (target_mask [B, C, H, W] in [0, 1], valid [B, C]). Pairs whose target mask
+        is empty are marked invalid (e.g. majority is empty when boxes do not overlap).
     """
     valid = batch["mask_valid"]
     if mask_type == "union":
@@ -59,12 +62,11 @@ def localization_loss(
     transform: str = "softplus",
 ):
     """
-    L_loc = 1 - sum(A * G) / (sum(A) + eps), trung bình trên các cặp
-    (ảnh, class) hợp lệ.
+    L_loc = 1 - sum(A * G) / (sum(A) + eps), averaged over valid (image, class) pairs.
 
-    target_masks có thể là mask nhị phân (union/majority) hoặc soft mask trong
-    [0, 1]; với soft mask, năng lượng trong vùng ít reader đồng ý chỉ được tính
-    một phần.
+    A is the positive part of the CAM and G the target mask. G can be binary
+    (union/majority) or a soft mask in [0, 1]; with a soft mask, energy in regions
+    where few readers agree only counts partially.
     """
     A = positive_part(activation, transform)
 

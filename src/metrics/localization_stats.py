@@ -1,10 +1,11 @@
 """
-Khoảng tin cậy bootstrap và so sánh paired giữa hai run.
+Bootstrap confidence intervals and paired comparisons between two runs.
 
-Bootstrap theo ảnh (cluster bootstrap): mỗi lần lấy lại ngẫu nhiên có hoàn lại
-các image_id, giữ mọi cặp (ảnh, finding) của ảnh đó, rồi tính macro theo finding
-như bảng báo cáo. So sánh hai run dùng cùng tập ảnh đã lấy mẫu cho cả hai
-(paired), nên khoảng tin cậy của hiệu số hẹp hơn so với so hai CI rời nhau.
+Image-level (cluster) bootstrap: each replicate resamples image_ids with
+replacement, keeps every (image, finding) pair of a sampled image, and computes the
+macro average over findings as in the reports. Two runs are compared on the same
+resampled images (paired), which gives tighter intervals for the difference than
+comparing two separate CIs.
 """
 
 import numpy as np
@@ -36,7 +37,7 @@ def _weighted_macro(frame, metric, weights_by_image):
 
 
 def bootstrap_macro_ci(records, metric, n_boot=1000, alpha=0.05, seed=0):
-    """Macro theo finding của `metric` và CI bootstrap theo ảnh."""
+    """Macro average of `metric` over findings, with an image-level bootstrap CI."""
     rng = np.random.default_rng(seed)
     frame = records.dropna(subset=[metric])
     point = float(_macro_by_finding(frame, metric))
@@ -50,8 +51,11 @@ def bootstrap_macro_ci(records, metric, n_boot=1000, alpha=0.05, seed=0):
 
 def paired_localization_diff(records_a, records_b, metric, n_boot=1000, alpha=0.05, seed=0):
     """
-    Hiệu macro(metric) của B trừ A trên các cặp (image_id, finding) có ở cả hai.
-    Trả về hiệu ước lượng, CI và p hai phía (tỉ lệ bootstrap đổi dấu).
+    Difference macro(metric) of B minus A on the (image_id, finding) pairs present in both.
+
+    Returns:
+        dict with the estimate, the CI and a two-sided p-value (share of bootstrap
+        replicates that cross zero).
     """
     keys = ["image_id", "finding"]
     merged = records_a[keys + [metric]].merge(
@@ -94,7 +98,7 @@ def _macro_auroc(targets, probabilities):
 
 
 def load_predictions(path, findings):
-    """Đọc test_predictions.csv (cột target::<finding>, probability::<finding>)."""
+    """Read test_predictions.csv (columns target::<finding>, probability::<finding>)."""
     frame = pd.read_csv(path).set_index("image_id")
     targets = frame[[f"target::{f}" for f in findings]].to_numpy(dtype=float)
     probabilities = frame[[f"probability::{f}" for f in findings]].to_numpy(dtype=float)
@@ -103,8 +107,9 @@ def load_predictions(path, findings):
 
 def paired_auroc_diff(pred_a, pred_b, n_boot=1000, alpha=0.05, seed=0):
     """
-    Hiệu macro-AUROC (B trừ A) với bootstrap paired theo ảnh.
-    pred_* = (image_ids, targets, probabilities) từ load_predictions.
+    Macro-AUROC difference (B minus A) with a paired image-level bootstrap.
+
+    pred_a and pred_b are (image_ids, targets, probabilities) from load_predictions.
     """
     ids_a, t_a, p_a = pred_a
     ids_b, t_b, p_b = pred_b
